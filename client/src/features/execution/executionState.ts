@@ -1,4 +1,4 @@
-import { WorkflowExecutionStatus } from "@shared/execution";
+import { NodeProposal, SafeAgentStatus, WorkflowExecutionStatus } from "@shared/execution";
 
 export type ExecutionHistoryStep = {
   id: string;
@@ -14,6 +14,8 @@ export type NodeExecution = {
   runId?: string;
   agentNodeId?: string;
   status: WorkflowExecutionStatus;
+  safeStatus?: SafeAgentStatus;
+  proposal?: NodeProposal;
   error?: string;
   startedAt?: number;
   resumedAt?: number;
@@ -73,9 +75,10 @@ export function executionReducer(state: ExecutionState, action: ExecutionAction)
       const resuming = previous?.runId === action.runId && previous.status === "paused";
       const execution: NodeExecution = {
         runId: action.runId,
-        agentNodeId: action.agentNodeId,
-        status: action.status,
-        startedAt: resuming ? previous.startedAt : now,
+          agentNodeId: action.agentNodeId,
+          status: action.status,
+          safeStatus: "processing",
+          startedAt: resuming ? previous.startedAt : now,
         resumedAt: now,
         accumulatedDurationMs: resuming ? getExecutionDuration(previous, previous.updatedAt) : 0,
         history: resuming ? previous.history : [],
@@ -91,6 +94,7 @@ export function executionReducer(state: ExecutionState, action: ExecutionAction)
         ...previous,
         ...action.result,
         status: action.result.status,
+        safeStatus: action.result.safeStatus ?? (action.result.status === "failed" ? "failed" : action.result.status === "paused" ? "waiting" : "completed"),
         resumedAt: undefined,
         accumulatedDurationMs: durationMs,
         durationMs,
@@ -107,6 +111,7 @@ export function executionReducer(state: ExecutionState, action: ExecutionAction)
       const execution: NodeExecution = {
         ...previous,
         status: "failed",
+        safeStatus: "failed",
         error: action.error,
         resumedAt: undefined,
         accumulatedDurationMs: durationMs,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WorkflowExecutionService } from "./execution";
+import { parseAgentModelContent, parseNodeProposalContent, WorkflowExecutionService } from "./execution";
 
 const validRequest = {
   runId: "run-0001",
@@ -14,6 +14,21 @@ const catalog = async () => ({
 });
 
 describe("WorkflowExecutionService", () => {
+  it("returns only a bounded approval-ready proposal and never exposes private reasoning", () => {
+    const result = parseAgentModelContent(JSON.stringify({
+      answer: "I can organize the source before continuing.",
+      proposal: { nodeType: "format", title: "Classify source", purpose: "Extract the requested fields." },
+      privateReasoning: "This is ignored.",
+    }));
+
+    expect(result).toEqual({ output: "I can organize the source before continuing.", proposal: { nodeType: "format", title: "Classify source", purpose: "Extract the requested fields." } });
+  });
+
+  it("parses a direct node proposal only from its safe allowed fields", () => {
+    expect(parseNodeProposalContent(JSON.stringify({ proposal: { nodeType: "blank", title: "Scratchpad", purpose: "Keep a working note." }, privateReasoning: "ignored" }))).toEqual({ nodeType: "blank", title: "Scratchpad", purpose: "Keep a working note." });
+    expect(parseNodeProposalContent(JSON.stringify({ proposal: { nodeType: "shell", title: "Unsafe", purpose: "Not allowed" } }))).toBeUndefined();
+  });
+
   it("returns real model output through a completed execution result", async () => {
     const service = new WorkflowExecutionService(catalog, async () => ({
       id: "completion-1",

@@ -44,3 +44,7 @@
 - [x] Implement Tunnel target selection and persistent multi-target document routes without removing existing ropes.
 - [x] Implement configurable Format, Split, and Blank node interfaces through the shared node architecture.
 - [x] Test node configuration, document metadata, and tunnel routing, then visually validate the expanded node library and save a checkpoint.
+- [x] Define safe public agent-status events and structured AI node-proposal contracts without exposing private reasoning.
+- [x] Add compact status controls to Input and AI Agent nodes that display only safe execution state.
+- [x] Let Input and AI Agent runs request a typed node proposal through the server and require explicit user approval before creation.
+- [x] Test status safety and approval gating, visually validate the node UI, and save the AI-status checkpoint.

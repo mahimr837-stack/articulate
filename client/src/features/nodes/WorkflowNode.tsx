@@ -3,6 +3,7 @@ import {
   Bot,
   Braces,
   ChevronUp,
+  ChevronDown,
   CircleOff,
   Clock3,
   Copy,
@@ -25,6 +26,7 @@ import {
   Upload,
 } from "lucide-react";
 import { ChangeEvent, PointerEvent, ReactNode, useEffect, useState } from "react";
+import { SafeAgentStatus } from "@shared/execution";
 import { formatDuration, getExecutionDuration, NodeExecution, idleExecution } from "../execution/executionState";
 import { DocumentFile, getNodeDimensions, nodeCatalog, NodeConfiguration, WorkflowNode as WorkflowNodeData } from "../workflow/types";
 
@@ -42,6 +44,9 @@ type WorkflowNodeProps = {
   onDocumentUpload?: (nodeId: string, files: File[]) => void;
   isDocumentUploading?: boolean;
   documentError?: string;
+  safeStatus?: SafeAgentStatus;
+  onRequestNodeProposal?: (nodeId: string) => void;
+  isRequestingProposal?: boolean;
 };
 
 function NodeIcon({ type }: { type: WorkflowNodeData["type"] }) {
@@ -139,6 +144,29 @@ function ExecutionTimer({ execution }: { execution: NodeExecution }) {
   return <div className="input-execution-timer"><Clock3 size={12} /> {formatDuration(getExecutionDuration(execution, now))}</div>;
 }
 
+const statusLabel: Record<SafeAgentStatus, string> = {
+  processing: "Processing",
+  waiting: "Waiting",
+  "using-tool": "Using tool",
+  "waiting-for-approval": "Waiting for approval",
+  completed: "Completed",
+  failed: "Failed",
+};
+
+function AgentStatusArea({ status, onRequestNodeProposal, nodeId, isRequesting }: { status?: SafeAgentStatus; onRequestNodeProposal?: (nodeId: string) => void; nodeId: string; isRequesting?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const resolvedStatus = status ?? "waiting";
+  return <div className="agent-status-wrap" onPointerDown={event => event.stopPropagation()}>
+    <button className={`agent-status-trigger state-${resolvedStatus}`} type="button" onClick={() => setOpen(value => !value)} aria-expanded={open}>
+      <span /><span>{statusLabel[resolvedStatus]}</span><ChevronDown size={12} />
+    </button>
+    {open && <div className="agent-status-menu">
+      <p>Safe execution status only</p>
+      {onRequestNodeProposal && <button type="button" disabled={isRequesting} onClick={() => { onRequestNodeProposal(nodeId); setOpen(false); }}>{isRequesting ? "Asking agent…" : "Suggest a node"}</button>}
+    </div>}
+  </div>;
+}
+
 function DocumentNodeContent({ node, onDocumentUpload, isDocumentUploading, documentError }: Pick<WorkflowNodeProps, "node" | "onDocumentUpload" | "isDocumentUploading" | "documentError">) {
   const files = (node.config.files as DocumentFile[] | undefined) ?? [];
   const onFilesChosen = (event: ChangeEvent<HTMLInputElement>) => {
@@ -194,6 +222,9 @@ export function WorkflowNode({
   onDocumentUpload,
   isDocumentUploading,
   documentError,
+  safeStatus,
+  onRequestNodeProposal,
+  isRequestingProposal,
 }: WorkflowNodeProps) {
   const dimensions = getNodeDimensions(node);
   const hasInput = node.type !== "input";
@@ -321,6 +352,8 @@ export function WorkflowNode({
           {execution.error && <p className="execution-error">{execution.error}</p>}
         </div>
       )}
+
+      {(node.type === "input" || node.type === "ai-agent") && <AgentStatusArea status={safeStatus ?? execution.safeStatus} onRequestNodeProposal={onRequestNodeProposal} nodeId={node.id} isRequesting={isRequestingProposal} />}
 
       {node.locked && <div className="node-lock-mark"><Lock size={12} /></div>}
       {selected && <NodeQuickActions node={node} onAction={onAction} />}

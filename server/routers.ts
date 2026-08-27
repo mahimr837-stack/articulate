@@ -15,6 +15,13 @@ const executionInput = z.object({
   retry: z.boolean().optional(),
 });
 
+const proposalInput = z.object({
+  sourceNodeId: z.string().min(1).max(128),
+  prompt: z.string().min(1).max(24_000),
+  model: z.string().max(128).optional(),
+  provider: z.string().max(128).optional(),
+});
+
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
@@ -38,6 +45,9 @@ export const appRouter = router({
     ),
     resume: publicProcedure.input(z.object({ runId: z.string().min(8).max(128) })).mutation(({ input }) =>
       workflowExecutionService.resume(input.runId),
+    ),
+    proposeNode: publicProcedure.input(proposalInput).mutation(({ input }) =>
+      workflowExecutionService.proposeNode(input),
     ),
   }),
 

@@ -6,11 +6,15 @@ import { TunnelTargetPicker } from "../features/documents/TunnelTargetPicker";
 import { executionReducer, ExecutionState } from "../features/execution/executionState";
 import { LocalExecutionStorageAdapter } from "../features/execution/storage";
 import { RawDataView } from "../features/inspection/RawDataView";
+import { ProposalApprovalDialog } from "../features/proposals/ProposalApprovalDialog";
+import { createApprovedProposalAddition } from "../features/proposals/approval";
+import { proposalReducer } from "../features/proposals/proposalState";
 import { LeftPanel } from "../features/panels/LeftPanel";
 import { Appearance, TopPanel } from "../features/panels/TopPanel";
 import { RightPanel } from "../features/panels/RightPanel";
 import { LocalWorkflowStorageAdapter } from "../features/workflow/storage";
 import { createDocumentTunnel, createInitialWorkflow, createNode, createWorkflowEdge, DocumentFile, NodeConfiguration, NodeType, WorkflowNode } from "../features/workflow/types";
+import { SafeAgentStatus } from "@shared/execution";
 import { workflowReducer } from "../features/workflow/workflowReducer";
 
 const storage = new LocalWorkflowStorageAdapter();
@@ -21,6 +25,7 @@ const createRunId = () => typeof crypto !== "undefined" && "randomUUID" in crypt
 export default function Home() {
   const [workflow, dispatch] = useReducer(workflowReducer, undefined, () => createInitialWorkflow());
   const [execution, dispatchExecution] = useReducer(executionReducer, {} as ExecutionState);
+  const [proposalState, dispatchProposal] = useReducer(proposalReducer, {});
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
   const [topOpen, setTopOpen] = useState(true);
@@ -28,12 +33,15 @@ export default function Home() {
   const [tunnelSourceNodeId, setTunnelSourceNodeId] = useState<string>();
   const [uploadingDocumentId, setUploadingDocumentId] = useState<string>();
   const [documentErrors, setDocumentErrors] = useState<Record<string, string | undefined>>({});
+  const [agentStatuses, setAgentStatuses] = useState<Record<string, SafeAgentStatus | undefined>>({});
   const [appearance, setAppearance] = useState<Appearance>(() => (localStorage.getItem("articulate:appearance") as Appearance) || "system");
   const clipboard = useRef<WorkflowNode[]>([]);
   const pasteCount = useRef(0);
   const runMutation = trpc.execution.run.useMutation();
   const pauseMutation = trpc.execution.pause.useMutation();
   const resumeMutation = trpc.execution.resume.useMutation();
+  const proposalMutation = trpc.execution.proposeNode.useMutation();
+  const [requestingProposalNodeId, setRequestingProposalNodeId] = useState<string>();
 
   useEffect(() => {
     document.documentElement.dataset.appearance = appearance;
@@ -250,9 +258,44 @@ export default function Home() {
     dispatchExecution({
       type: "settle",
       inputNodeId,
-      result: { runId: result.runId, agentNodeId, status: result.status, error: result.error },
+      result: { runId: result.runId, agentNodeId, status: result.status, safeStatus: result.safeStatus, proposal: result.proposal, error: result.error },
     });
+    if (agentNodeId) setAgentStatuses(statuses => ({ ...statuses, [agentNodeId]: result.safeStatus ?? (result.status === "failed" ? "failed" : result.status === "paused" ? "waiting" : "completed") }));
+    if (result.proposal) dispatchProposal({ type: "received", pending: { sourceNodeId: agentNodeId || inputNodeId, proposal: result.proposal } });
     if (result.status === "completed" && result.output) showExecutionOutput(agentNodeId, result.output);
+  };
+
+  const requestNodeProposal = async (sourceNodeId: string) => {
+    const source = workflow.nodes.find(node => node.id === sourceNodeId);
+    if (!source || (source.type !== "input" && source.type !== "ai-agent")) return;
+    const prompt = source.type === "input"
+      ? String(source.config.prompt ?? "")
+      : `Workflow node: ${source.title}\nModel: ${String(source.config.model ?? "Manus 1.6")}\nSuggest one useful next node for this workflow.`;
+    if (!prompt.trim()) return;
+    setRequestingProposalNodeId(sourceNodeId);
+    setAgentStatuses(statuses => ({ ...statuses, [sourceNodeId]: "processing" }));
+    try {
+      const result = await proposalMutation.mutateAsync({ sourceNodeId, prompt, model: source.type === "ai-agent" ? String(source.config.model ?? "Manus 1.6") : undefined, provider: source.type === "ai-agent" ? String(source.config.provider ?? "Manus") : undefined });
+      setAgentStatuses(statuses => ({ ...statuses, [sourceNodeId]: result.safeStatus }));
+      if (result.proposal) dispatchProposal({ type: "received", pending: { sourceNodeId, proposal: result.proposal } });
+    } catch {
+      setAgentStatuses(statuses => ({ ...statuses, [sourceNodeId]: "failed" }));
+    } finally {
+      setRequestingProposalNodeId(undefined);
+    }
+  };
+
+  const resolveProposal = (approved: boolean) => {
+    const pending = proposalState.pending;
+    if (!pending) return;
+    const source = workflow.nodes.find(node => node.id === pending.sourceNodeId);
+    if (approved && source) {
+      const addition = createApprovedProposalAddition(pending.proposal, source, nextNodeIndex(workflow.nodes));
+      dispatch({ type: "add-nodes", nodes: [addition.node], select: true });
+      dispatch({ type: "add-edge", edge: addition.edge });
+    }
+    setAgentStatuses(statuses => ({ ...statuses, [pending.sourceNodeId]: "completed" }));
+    dispatchProposal({ type: "resolved" });
   };
 
   const onExecutionAction = async (inputNodeId: string, action: "run" | "pause" | "resume" | "retry") => {
@@ -325,6 +368,9 @@ export default function Home() {
         onDocumentUpload={onDocumentUpload}
         uploadingDocumentId={uploadingDocumentId}
         documentErrors={documentErrors}
+        agentStatuses={agentStatuses}
+        requestingProposalNodeId={requestingProposalNodeId}
+        onRequestNodeProposal={requestNodeProposal}
       />
       <LeftPanel open={leftOpen} onToggle={() => setLeftOpen(open => !open)} onAddNode={addNode} onCopy={copySelection} canCopy={selectedNodes.length > 0} />
       <RightPanel open={rightOpen} node={selectedNode} execution={execution} nodes={workflow.nodes} onToggle={() => setRightOpen(open => !open)} onConfigChange={onConfigChange} />
@@ -332,6 +378,7 @@ export default function Home() {
       <div className="shortcut-strip"><span><kbd>SPACE + DRAG</kbd> PAN</span><span><kbd>SHIFT + DRAG</kbd> SELECT</span><span><kbd>⌘/CTRL C/V</kbd> COPY / PASTE</span></div>
       {rawNode && <RawDataView workflow={workflow} node={rawNode} onClose={() => setRawNodeId(undefined)} />}
       {tunnelSourceNode && <TunnelTargetPicker source={tunnelSourceNode} nodes={workflow.nodes} onConfirm={onTunnelDocuments} onClose={() => setTunnelSourceNodeId(undefined)} />}
+      {proposalState.pending && <ProposalApprovalDialog pending={proposalState.pending} sourceTitle={workflow.nodes.find(node => node.id === proposalState.pending?.sourceNodeId)?.title ?? "AI Agent"} onApprove={() => resolveProposal(true)} onDecline={() => resolveProposal(false)} />}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { Minus, MousePointer2, Plus, Power, Scan, Trash2 } from "lucide-react";
 import { PointerEvent, WheelEvent, useMemo, useRef, useState } from "react";
 import { WorkflowNode } from "../nodes/WorkflowNode";
 import { ExecutionState } from "../execution/executionState";
+import { SafeAgentStatus } from "@shared/execution";
 import { createWorkflowEdge, getDerivedBypassEdges, getNodeDimensions, GraphPosition, isWorkflowEdgeEnabled, isWorkflowNodeBypassed, NodeConfiguration, WorkflowEdge, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
 
 type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw" | "tunnel";
@@ -22,6 +23,9 @@ type CanvasProps = {
   onDocumentUpload: (nodeId: string, files: File[]) => void;
   uploadingDocumentId?: string;
   documentErrors: Record<string, string | undefined>;
+  agentStatuses: Record<string, SafeAgentStatus | undefined>;
+  requestingProposalNodeId?: string;
+  onRequestNodeProposal: (nodeId: string) => void;
 };
 
 type Viewport = { x: number; y: number; zoom: number };
@@ -78,6 +82,9 @@ export function WorkflowCanvas({
   onDocumentUpload,
   uploadingDocumentId,
   documentErrors,
+  agentStatuses,
+  requestingProposalNodeId,
+  onRequestNodeProposal,
 }: CanvasProps) {
   const [viewport, setViewport] = useState<Viewport>(getDefaultViewport);
   const [interaction, setInteraction] = useState<Interaction>(null);
@@ -271,6 +278,9 @@ export function WorkflowCanvas({
           </div>
         )}
         {nodes.map(node => (
+          (() => {
+            const nodeExecution = execution[node.id] ?? Object.values(execution).find(record => record.agentNodeId === node.id);
+            return (
           <WorkflowNode
             key={node.id}
             node={node}
@@ -279,12 +289,17 @@ export function WorkflowCanvas({
             onPortPointerDown={onPortPointerDown}
             onAction={onNodeAction}
             onConfigChange={onConfigChange}
-            execution={execution[node.id]}
+            execution={nodeExecution}
             onExecutionAction={onExecutionAction}
             onDocumentUpload={onDocumentUpload}
             isDocumentUploading={uploadingDocumentId === node.id}
             documentError={documentErrors[node.id]}
+            safeStatus={agentStatuses[node.id]}
+            onRequestNodeProposal={onRequestNodeProposal}
+            isRequestingProposal={requestingProposalNodeId === node.id}
           />
+            );
+          })()
         ))}
       </div>
 
