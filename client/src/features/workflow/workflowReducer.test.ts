@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createInitialWorkflow, createNode, searchNodeTypes } from "./types";
+import { createInitialWorkflow, createNode, getIncomingWorkflowEdges, searchNodeTypes } from "./types";
 import { workflowReducer } from "./workflowReducer";
 
 describe("workflowReducer", () => {
@@ -45,5 +45,39 @@ describe("searchNodeTypes", () => {
     expect(searchNodeTypes("agent")).toEqual(["ai-agent"]);
     expect(searchNodeTypes("state")).toEqual(["memory"]);
     expect(searchNodeTypes("   ")).toHaveLength(8);
+  });
+});
+
+describe("workflow connections", () => {
+  it("keeps a disabled connection in graph state but excludes it from incoming information", () => {
+    const state = createInitialWorkflow();
+    const edge = state.edges[0]!;
+    const target = edge.target;
+    const result = workflowReducer(state, { type: "toggle-edge", edgeId: edge.id });
+
+    expect(result.edges.find(candidate => candidate.id === edge.id)?.enabled).toBe(false);
+    expect(result.edges.some(candidate => candidate.id === edge.id)).toBe(true);
+    expect(getIncomingWorkflowEdges(result, target).some(candidate => candidate.id === edge.id)).toBe(false);
+  });
+
+  it("removes a deleted connection and clears its selected state", () => {
+    const state = createInitialWorkflow();
+    const edge = state.edges[1]!;
+    const selected = { ...state, selection: { nodeIds: [], edgeIds: [edge.id] } };
+    const result = workflowReducer(selected, { type: "delete-edge", edgeId: edge.id });
+
+    expect(result.edges.some(candidate => candidate.id === edge.id)).toBe(false);
+    expect(result.selection.edgeIds).toEqual([]);
+  });
+
+  it("normalizes legacy saved edges before users interact with them", () => {
+    const state = createInitialWorkflow();
+    const legacyEdge = { ...state.edges[0]! } as { enabled?: boolean } & typeof state.edges[number];
+    delete legacyEdge.enabled;
+    const legacyWorkflow = { ...state, edges: [legacyEdge, ...state.edges.slice(1)] };
+    const result = workflowReducer(state, { type: "replace", workflow: legacyWorkflow });
+
+    expect(result.edges[0]?.enabled).toBe(true);
+    expect(result.edges[0]?.mode).toBe("standard");
   });
 });

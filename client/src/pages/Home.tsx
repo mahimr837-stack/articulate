@@ -117,6 +117,8 @@ export default function Home() {
         onSelectionChange={selection => dispatch({ type: "set-selection", selection })}
         onMoveNodes={positions => dispatch({ type: "move-nodes", positions })}
         onAddEdge={edge => dispatch({ type: "add-edge", edge })}
+        onToggleEdge={edgeId => dispatch({ type: "toggle-edge", edgeId })}
+        onDeleteEdge={edgeId => dispatch({ type: "delete-edge", edgeId })}
         onNodeAction={onNodeAction}
         onConfigChange={onConfigChange}
       />

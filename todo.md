@@ -20,3 +20,7 @@
 - [x] Ensure node-library selections create new nodes through the existing workflow node factory and placement flow.
 - [x] Reveal minimal contextual controls on a first node click without disrupting drag interactions.
 - [x] Test node discovery, placement, and first-click controls, then save the feature checkpoint.
+- [x] Extend the workflow edge model with persistent enablement and future routing metadata.
+- [x] Make ropes directly selectable and surface a compact midpoint control for edge actions.
+- [x] Implement edge disable/re-enable and deletion without changing the existing node connection behavior.
+- [x] Add connection-state tests, visually validate rope interactions, and save the connection-system checkpoint.

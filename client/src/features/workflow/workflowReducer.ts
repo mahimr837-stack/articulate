@@ -1,4 +1,4 @@
-import { WorkflowEdge, WorkflowNode, WorkflowSelection, WorkflowState } from "./types";
+import { createWorkflowEdge, isWorkflowEdgeEnabled, WorkflowEdge, WorkflowNode, WorkflowSelection, WorkflowState } from "./types";
 
 export type WorkflowAction =
   | { type: "replace"; workflow: WorkflowState }
@@ -8,7 +8,9 @@ export type WorkflowAction =
   | { type: "update-node"; nodeId: string; patch: Partial<Pick<WorkflowNode, "title" | "config">> }
   | { type: "toggle-lock"; nodeId: string }
   | { type: "delete-nodes"; nodeIds: string[] }
-  | { type: "add-edge"; edge: WorkflowEdge };
+  | { type: "add-edge"; edge: WorkflowEdge }
+  | { type: "toggle-edge"; edgeId: string }
+  | { type: "delete-edge"; edgeId: string };
 
 const stamp = (state: WorkflowState, patch: Partial<WorkflowState>): WorkflowState => ({
   ...state,
@@ -19,7 +21,10 @@ const stamp = (state: WorkflowState, patch: Partial<WorkflowState>): WorkflowSta
 export function workflowReducer(state: WorkflowState, action: WorkflowAction): WorkflowState {
   switch (action.type) {
     case "replace":
-      return action.workflow;
+      return {
+        ...action.workflow,
+        edges: action.workflow.edges.map(edge => createWorkflowEdge(edge)),
+      };
     case "set-selection":
       return { ...state, selection: action.selection };
     case "add-nodes":
@@ -71,6 +76,22 @@ export function workflowReducer(state: WorkflowState, action: WorkflowAction): W
       );
       return duplicate ? state : stamp(state, { edges: [...state.edges, action.edge] });
     }
+    case "toggle-edge":
+      return stamp(state, {
+        edges: state.edges.map(edge =>
+          edge.id === action.edgeId
+            ? { ...edge, enabled: !isWorkflowEdgeEnabled(edge), mode: edge.mode ?? "standard" }
+            : edge,
+        ),
+      });
+    case "delete-edge":
+      return stamp(state, {
+        edges: state.edges.filter(edge => edge.id !== action.edgeId),
+        selection: {
+          nodeIds: state.selection.nodeIds,
+          edgeIds: state.selection.edgeIds.filter(edgeId => edgeId !== action.edgeId),
+        },
+      });
     default:
       return state;
   }

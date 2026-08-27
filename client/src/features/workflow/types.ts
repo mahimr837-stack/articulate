@@ -34,6 +34,15 @@ export type WorkflowEdge = {
   target: string;
   sourcePort: "out";
   targetPort: "in";
+  /** A disabled edge stays in the workflow but does not contribute downstream information. */
+  enabled: boolean;
+  /** Reserved for execution routing without changing the core connection shape. */
+  mode: "standard" | "conditional" | "temporary";
+  metadata?: {
+    condition?: string;
+    label?: string;
+    expiresAt?: number;
+  };
 };
 
 export type WorkflowSelection = {
@@ -104,6 +113,24 @@ const id = () =>
     ? crypto.randomUUID()
     : `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
+export function createWorkflowEdge(
+  edge: Pick<WorkflowEdge, "id" | "source" | "target" | "sourcePort" | "targetPort"> & Partial<Pick<WorkflowEdge, "enabled" | "mode" | "metadata">>,
+): WorkflowEdge {
+  return {
+    ...edge,
+    enabled: edge.enabled ?? true,
+    mode: edge.mode ?? "standard",
+  };
+}
+
+export function isWorkflowEdgeEnabled(edge: Pick<WorkflowEdge, "enabled"> | { enabled?: boolean }) {
+  return edge.enabled !== false;
+}
+
+export function getIncomingWorkflowEdges(workflow: WorkflowState, nodeId: string) {
+  return workflow.edges.filter(edge => edge.target === nodeId && isWorkflowEdgeEnabled(edge));
+}
+
 export function createNode(
   type: NodeType,
   position: GraphPosition,
@@ -148,9 +175,9 @@ export function createInitialWorkflow(): WorkflowState {
     name: "Untitled workflow",
     nodes: [input, context, agent, output],
     edges: [
-      { id: id(), source: input.id, target: agent.id, sourcePort: "out", targetPort: "in" },
-      { id: id(), source: context.id, target: agent.id, sourcePort: "out", targetPort: "in" },
-      { id: id(), source: agent.id, target: output.id, sourcePort: "out", targetPort: "in" },
+      createWorkflowEdge({ id: id(), source: input.id, target: agent.id, sourcePort: "out", targetPort: "in" }),
+      createWorkflowEdge({ id: id(), source: context.id, target: agent.id, sourcePort: "out", targetPort: "in" }),
+      createWorkflowEdge({ id: id(), source: agent.id, target: output.id, sourcePort: "out", targetPort: "in" }),
     ],
     selection: { nodeIds: [agent.id], edgeIds: [] },
     updatedAt: Date.now(),

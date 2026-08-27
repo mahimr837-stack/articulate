@@ -1,7 +1,7 @@
-import { Minus, MousePointer2, Plus, Scan } from "lucide-react";
+import { Minus, MousePointer2, Plus, Power, Scan, Trash2 } from "lucide-react";
 import { PointerEvent, WheelEvent, useMemo, useRef, useState } from "react";
 import { WorkflowNode } from "../nodes/WorkflowNode";
-import { GraphPosition, NodeConfiguration, WorkflowEdge, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
+import { createWorkflowEdge, GraphPosition, isWorkflowEdgeEnabled, NodeConfiguration, WorkflowEdge, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
 
 type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock";
 
@@ -12,16 +12,18 @@ type CanvasProps = {
   onSelectionChange: (selection: WorkflowSelection) => void;
   onMoveNodes: (positions: Record<string, GraphPosition>) => void;
   onAddEdge: (edge: WorkflowEdge) => void;
+  onToggleEdge: (edgeId: string) => void;
+  onDeleteEdge: (edgeId: string) => void;
   onNodeAction: (nodeId: string, action: NodeAction) => void;
   onConfigChange: (nodeId: string, config: Partial<NodeConfiguration>) => void;
 };
 
 type Viewport = { x: number; y: number; zoom: number };
 type Interaction =
-  | { kind: "pan"; start: { x: number; y: number }; viewport: Viewport; moved: boolean }
-  | { kind: "marquee"; start: { x: number; y: number }; current: { x: number; y: number } }
-  | { kind: "node"; start: { x: number; y: number }; positions: Record<string, GraphPosition> }
-  | { kind: "connect"; source: string; current: { x: number; y: number } }
+  | { kind: "pan"; start: GraphPosition; viewport: Viewport; moved: boolean }
+  | { kind: "marquee"; start: GraphPosition; current: GraphPosition }
+  | { kind: "node"; start: GraphPosition; positions: Record<string, GraphPosition> }
+  | { kind: "connect"; source: string; current: GraphPosition }
   | null;
 
 const GRID = 20;
@@ -35,6 +37,18 @@ const getDefaultViewport = (): Viewport =>
 function curve(from: GraphPosition, to: GraphPosition) {
   const bow = Math.max(70, Math.abs(to.x - from.x) * 0.42);
   return `M ${from.x} ${from.y} C ${from.x + bow} ${from.y}, ${to.x - bow} ${to.y}, ${to.x} ${to.y}`;
+}
+
+function curveMidpoint(from: GraphPosition, to: GraphPosition): GraphPosition {
+  const bow = Math.max(70, Math.abs(to.x - from.x) * 0.42);
+  const controlA = { x: from.x + bow, y: from.y };
+  const controlB = { x: to.x - bow, y: to.y };
+  const t = 0.5;
+  const mt = 1 - t;
+  return {
+    x: mt ** 3 * from.x + 3 * mt ** 2 * t * controlA.x + 3 * mt * t ** 2 * controlB.x + t ** 3 * to.x,
+    y: mt ** 3 * from.y + 3 * mt ** 2 * t * controlA.y + 3 * mt * t ** 2 * controlB.y + t ** 3 * to.y,
+  };
 }
 
 function nodeCenter(node: WorkflowNodeData, direction: "in" | "out"): GraphPosition {
@@ -52,11 +66,14 @@ export function WorkflowCanvas({
   onSelectionChange,
   onMoveNodes,
   onAddEdge,
+  onToggleEdge,
+  onDeleteEdge,
   onNodeAction,
   onConfigChange,
 }: CanvasProps) {
   const [viewport, setViewport] = useState<Viewport>(getDefaultViewport);
   const [interaction, setInteraction] = useState<Interaction>(null);
+  const [edgeActionsOpen, setEdgeActionsOpen] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
 
   const byId = useMemo(() => new Map(nodes.map(node => [node.id, node])), [nodes]);
@@ -75,9 +92,15 @@ export function WorkflowCanvas({
     onSelectionChange({ nodeIds, edgeIds: [] });
   };
 
+  const onEdgePointerDown = (event: PointerEvent<SVGPathElement>, edgeId: string) => {
+    event.stopPropagation();
+    setEdgeActionsOpen(false);
+    onSelectionChange({ nodeIds: [], edgeIds: [edgeId] });
+  };
+
   const onStagePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     const target = event.target as Element;
-    if (target.closest("[data-node-id], [data-port-node-id], .canvas-controls")) return;
+    if (target.closest("[data-node-id], [data-port-node-id], .canvas-controls, .rope-selection")) return;
     if (event.button !== 0 && event.button !== 1) return;
     const point = getStagePoint(event);
     stageRef.current?.setPointerCapture(event.pointerId);
@@ -141,13 +164,13 @@ export function WorkflowCanvas({
       const targetId = target?.dataset.portNodeId;
       const targetDirection = target?.dataset.portDirection;
       if (targetId && targetDirection === "in" && targetId !== interaction.source) {
-        onAddEdge({
+        onAddEdge(createWorkflowEdge({
           id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `edge-${Date.now()}`,
           source: interaction.source,
           target: targetId,
           sourcePort: "out",
           targetPort: "in",
-        });
+        }));
       }
     }
     setInteraction(null);
@@ -165,6 +188,12 @@ export function WorkflowCanvas({
     ? { left: Math.min(interaction.start.x, interaction.current.x), top: Math.min(interaction.start.y, interaction.current.y), width: Math.abs(interaction.current.x - interaction.start.x), height: Math.abs(interaction.current.y - interaction.start.y) }
     : null;
   const draggingRope = interaction?.kind === "connect" ? { from: byId.get(interaction.source), to: interaction.current } : null;
+  const selectedEdge = selection.edgeIds.length === 1 ? edges.find(edge => edge.id === selection.edgeIds[0]) : undefined;
+  const selectedEdgeSource = selectedEdge ? byId.get(selectedEdge.source) : undefined;
+  const selectedEdgeTarget = selectedEdge ? byId.get(selectedEdge.target) : undefined;
+  const selectedEdgeMidpoint = selectedEdgeSource && selectedEdgeTarget
+    ? curveMidpoint(nodeCenter(selectedEdgeSource, "out"), nodeCenter(selectedEdgeTarget, "in"))
+    : undefined;
 
   return (
     <main
@@ -183,10 +212,42 @@ export function WorkflowCanvas({
             const source = byId.get(edge.source);
             const target = byId.get(edge.target);
             if (!source || !target) return null;
-            return <path key={edge.id} className="workflow-rope" d={curve(nodeCenter(source, "out"), nodeCenter(target, "in"))} />;
+            const enabled = isWorkflowEdgeEnabled(edge);
+            return (
+              <path
+                key={edge.id}
+                className={`workflow-rope ${selection.edgeIds.includes(edge.id) ? "is-selected" : ""} ${enabled ? "" : "is-disabled"}`}
+                d={curve(nodeCenter(source, "out"), nodeCenter(target, "in"))}
+                onPointerDown={event => onEdgePointerDown(event, edge.id)}
+              />
+            );
           })}
           {draggingRope?.from && <path className="workflow-rope is-drawing" d={curve(nodeCenter(draggingRope.from, "out"), draggingRope.to)} />}
         </svg>
+        {selectedEdge && selectedEdgeMidpoint && (
+          <div className="rope-selection" style={{ left: selectedEdgeMidpoint.x, top: selectedEdgeMidpoint.y }}>
+            <button
+              className="rope-control"
+              type="button"
+              aria-label="Connection actions"
+              aria-expanded={edgeActionsOpen}
+              onPointerDown={event => event.stopPropagation()}
+              onClick={() => setEdgeActionsOpen(open => !open)}
+            >
+              [•]
+            </button>
+            {edgeActionsOpen && (
+              <div className="rope-actions" onPointerDown={event => event.stopPropagation()}>
+                <button type="button" onClick={() => { onToggleEdge(selectedEdge.id); setEdgeActionsOpen(false); }}>
+                  <Power size={13} /> {isWorkflowEdgeEnabled(selectedEdge) ? "Disable" : "Enable"}
+                </button>
+                <button type="button" className="danger" onClick={() => { onDeleteEdge(selectedEdge.id); setEdgeActionsOpen(false); }}>
+                  <Trash2 size={13} /> Delete
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {nodes.map(node => (
           <WorkflowNode
             key={node.id}
@@ -203,7 +264,7 @@ export function WorkflowCanvas({
       {marquee && <div className="marquee" style={marquee} />}
       <div className="canvas-axis axis-x"><span>X</span><i /></div>
       <div className="canvas-axis axis-y"><span>Y</span><i /></div>
-      <div className="canvas-hud"><MousePointer2 size={13} /><span>{selection.nodeIds.length ? `${selection.nodeIds.length} SELECTED` : "CANVAS READY"}</span></div>
+      <div className="canvas-hud"><MousePointer2 size={13} /><span>{selection.nodeIds.length ? `${selection.nodeIds.length} SELECTED` : selection.edgeIds.length ? "CONNECTION SELECTED" : "CANVAS READY"}</span></div>
       <div className="canvas-controls" onPointerDown={event => event.stopPropagation()}>
         <button onClick={() => setViewport(current => ({ ...current, zoom: clamp(current.zoom - 0.1, 0.3, 2.3) }))} aria-label="Zoom out"><Minus size={15} /></button>
         <button className="zoom-readout" onClick={() => setViewport(current => ({ ...current, zoom: 1 }))}>{Math.round(viewport.zoom * 100)}%</button>
