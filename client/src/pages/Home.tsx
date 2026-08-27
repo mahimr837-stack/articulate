@@ -18,6 +18,7 @@ import { SafeAgentStatus } from "@shared/execution";
 import { workflowReducer } from "../features/workflow/workflowReducer";
 import { commitWorkflow, createStarterWorkflows, createWorkflowExport, createWorkflowHistory, createWorkflowTemplate, duplicateWorkflow, LocalTemplateStorageAdapter, parseWorkflowExport, publishWorkflowTemplate, redoWorkflow, undoWorkflow, WorkflowHistory, WorkflowTemplate } from "../features/workflow/workflowControls";
 import { WorkflowLibraryDialog } from "../features/workflow/WorkflowLibraryDialog";
+import { isArticulateThinking } from "../features/brand/thinkingState";
 
 const storage = new LocalWorkflowStorageAdapter();
 const executionStorage = new LocalExecutionStorageAdapter();
@@ -95,6 +96,10 @@ export default function Home() {
   );
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined;
   const activeGroup = (workflow.groups ?? []).find(group => group.nodeIds.length === workflow.selection.nodeIds.length && group.nodeIds.every(nodeId => workflow.selection.nodeIds.includes(nodeId)));
+  const isThinking = useMemo(
+    () => isArticulateThinking(Object.values(execution).map(record => record.status), Object.values(agentStatuses)),
+    [execution, agentStatuses],
+  );
 
   const addNode = useCallback((type: NodeType) => {
     const count = workflow.nodes.length;
@@ -440,7 +445,7 @@ export default function Home() {
       />
       <LeftPanel open={leftOpen} onToggle={() => setLeftOpen(open => !open)} onAddNode={addNode} onCopy={copySelection} canCopy={selectedNodes.length > 0} />
       <RightPanel open={rightOpen} node={selectedNode} execution={execution} nodes={workflow.nodes} onToggle={() => setRightOpen(open => !open)} onConfigChange={onConfigChange} />
-      <TopPanel open={topOpen} appearance={appearance} workflowName={workflow.name} nodes={workflow.nodes} canUndo={workflowHistory.past.length > 0} canRedo={workflowHistory.future.length > 0} selectedCount={workflow.selection.nodeIds.length} activeGroupLocked={activeGroup?.locked} onToggle={() => setTopOpen(open => !open)} onAppearanceChange={setAppearance} onUndo={() => setWorkflowHistory(undoWorkflow)} onRedo={() => setWorkflowHistory(redoWorkflow)} onFocusNode={nodeId => { dispatch({ type: "set-selection", selection: { nodeIds: [nodeId], edgeIds: [] } }); setFocusRequest({ nodeId, key: Date.now() }); }} onWorkflowAction={onWorkflowAction} onGrip={() => dispatch({ type: "grip-selection", groupId: `group-${Date.now()}` })} onUngrip={() => dispatch({ type: "ungrip-selected" })} onToggleGroupLock={() => { if (activeGroup) dispatch({ type: "toggle-group-lock", groupId: activeGroup.id }); }} onExecuteSelected={() => dispatch({ type: "execute-selected", executionId: `selected-${Date.now()}` })} />
+      <TopPanel open={topOpen} appearance={appearance} workflowName={workflow.name} nodes={workflow.nodes} canUndo={workflowHistory.past.length > 0} canRedo={workflowHistory.future.length > 0} selectedCount={workflow.selection.nodeIds.length} activeGroupLocked={activeGroup?.locked} isThinking={isThinking} onToggle={() => setTopOpen(open => !open)} onAppearanceChange={setAppearance} onUndo={() => setWorkflowHistory(undoWorkflow)} onRedo={() => setWorkflowHistory(redoWorkflow)} onFocusNode={nodeId => { dispatch({ type: "set-selection", selection: { nodeIds: [nodeId], edgeIds: [] } }); setFocusRequest({ nodeId, key: Date.now() }); }} onWorkflowAction={onWorkflowAction} onGrip={() => dispatch({ type: "grip-selection", groupId: `group-${Date.now()}` })} onUngrip={() => dispatch({ type: "ungrip-selected" })} onToggleGroupLock={() => { if (activeGroup) dispatch({ type: "toggle-group-lock", groupId: activeGroup.id }); }} onExecuteSelected={() => dispatch({ type: "execute-selected", executionId: `selected-${Date.now()}` })} />
       <div className="shortcut-strip"><span><kbd>SPACE + DRAG</kbd> PAN</span><span><kbd>SHIFT + DRAG</kbd> SELECT</span><span><kbd>⌘/CTRL C/V</kbd> COPY / PASTE</span></div>
       {rawNode && <RawDataView workflow={workflow} node={rawNode} onClose={() => setRawNodeId(undefined)} />}
       {tunnelSourceNode && <TunnelTargetPicker source={tunnelSourceNode} nodes={workflow.nodes} onConfirm={onTunnelDocuments} onClose={() => setTunnelSourceNodeId(undefined)} />}

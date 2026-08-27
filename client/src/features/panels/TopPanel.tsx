@@ -1,6 +1,7 @@
 import { BookOpen, ChevronDown, ChevronUp, Command, CopyPlus, Download, Eye, FileUp, Link2, Lock, PanelTopClose, Play, Redo2, Search, Share2, Undo2, Unlock, Unlink } from "lucide-react";
 import { useMemo, useState } from "react";
 import { WorkflowNode } from "../workflow/types";
+import { ArticulateThinkingLogo } from "../brand/ArticulateThinkingLogo";
 
 export type Appearance = "white" | "grey" | "night" | "system";
 type WorkflowMenuAction = "save-template" | "duplicate" | "templates" | "starters" | "import" | "export" | "share" | "publish";
@@ -14,6 +15,7 @@ type TopPanelProps = {
   canRedo: boolean;
   selectedCount: number;
   activeGroupLocked?: boolean;
+  isThinking: boolean;
   onToggle: () => void;
   onAppearanceChange: (appearance: Appearance) => void;
   onUndo: () => void;
@@ -30,7 +32,7 @@ const appearances: { id: Appearance; label: string }[] = [
   { id: "white", label: "White" }, { id: "grey", label: "Grey" }, { id: "night", label: "Night" }, { id: "system", label: "System" },
 ];
 
-export function TopPanel({ open, appearance, workflowName, nodes, canUndo, canRedo, selectedCount, activeGroupLocked, onToggle, onAppearanceChange, onUndo, onRedo, onFocusNode, onWorkflowAction, onGrip, onUngrip, onToggleGroupLock, onExecuteSelected }: TopPanelProps) {
+export function TopPanel({ open, appearance, workflowName, nodes, canUndo, canRedo, selectedCount, activeGroupLocked, isThinking, onToggle, onAppearanceChange, onUndo, onRedo, onFocusNode, onWorkflowAction, onGrip, onUngrip, onToggleGroupLock, onExecuteSelected }: TopPanelProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const matches = useMemo(() => {
@@ -41,7 +43,7 @@ export function TopPanel({ open, appearance, workflowName, nodes, canUndo, canRe
 
   if (!open) return <button className="top-rail" onClick={onToggle} aria-label="Open top controls"><ChevronUp size={17} /></button>;
   return <header className="top-panel workflow-top-panel">
-    <div className="top-identity"><span className="top-geometry" /><div><h1>{workflowName}</h1></div></div>
+    <div className="top-identity"><ArticulateThinkingLogo isThinking={isThinking} size={25} /><div><h1>{workflowName}</h1></div></div>
     <div className="top-center-tools">
       <div className="tool-segment"><button onClick={onUndo} disabled={!canUndo} aria-label="Undo"><Undo2 size={15} /></button><button onClick={onRedo} disabled={!canRedo} aria-label="Redo"><Redo2 size={15} /></button></div>
       <div className="group-tools">
