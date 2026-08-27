@@ -1,5 +1,6 @@
 import { Minus, MousePointer2, Plus, Power, Scan, Trash2 } from "lucide-react";
 import { PointerEvent, WheelEvent, useMemo, useRef, useState } from "react";
+import { useEffect } from "react";
 import { WorkflowNode } from "../nodes/WorkflowNode";
 import { ExecutionState } from "../execution/executionState";
 import { SafeAgentStatus } from "@shared/execution";
@@ -26,6 +27,7 @@ type CanvasProps = {
   agentStatuses: Record<string, SafeAgentStatus | undefined>;
   requestingProposalNodeId?: string;
   onRequestNodeProposal: (nodeId: string) => void;
+  focusRequest?: { nodeId: string; key: number };
 };
 
 type Viewport = { x: number; y: number; zoom: number };
@@ -85,6 +87,7 @@ export function WorkflowCanvas({
   agentStatuses,
   requestingProposalNodeId,
   onRequestNodeProposal,
+  focusRequest,
 }: CanvasProps) {
   const [viewport, setViewport] = useState<Viewport>(getDefaultViewport);
   const [interaction, setInteraction] = useState<Interaction>(null);
@@ -92,6 +95,15 @@ export function WorkflowCanvas({
   const stageRef = useRef<HTMLDivElement>(null);
 
   const byId = useMemo(() => new Map(nodes.map(node => [node.id, node])), [nodes]);
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    const node = byId.get(focusRequest.nodeId);
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!node || !rect) return;
+    const dimensions = getNodeDimensions(node);
+    setViewport(current => ({ ...current, x: rect.width / 2 - (node.position.x + dimensions.width / 2) * current.zoom, y: rect.height / 2 - (node.position.y + dimensions.height / 2) * current.zoom }));
+  }, [focusRequest, byId]);
   const bypassedNodeIds = useMemo(
     () => new Set(nodes.filter(isWorkflowNodeBypassed).map(node => node.id)),
     [nodes],

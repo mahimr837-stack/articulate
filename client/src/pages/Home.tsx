@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { AgentRunResult } from "@shared/execution";
 import { WorkflowCanvas } from "../features/canvas/WorkflowCanvas";
@@ -16,14 +16,21 @@ import { LocalWorkflowStorageAdapter } from "../features/workflow/storage";
 import { createDocumentTunnel, createInitialWorkflow, createNode, createWorkflowEdge, DocumentFile, NodeConfiguration, NodeType, WorkflowNode } from "../features/workflow/types";
 import { SafeAgentStatus } from "@shared/execution";
 import { workflowReducer } from "../features/workflow/workflowReducer";
+import { commitWorkflow, createStarterWorkflows, createWorkflowExport, createWorkflowHistory, createWorkflowTemplate, duplicateWorkflow, LocalTemplateStorageAdapter, parseWorkflowExport, publishWorkflowTemplate, redoWorkflow, undoWorkflow, WorkflowHistory, WorkflowTemplate } from "../features/workflow/workflowControls";
+import { WorkflowLibraryDialog } from "../features/workflow/WorkflowLibraryDialog";
 
 const storage = new LocalWorkflowStorageAdapter();
 const executionStorage = new LocalExecutionStorageAdapter();
+const templateStorage = new LocalTemplateStorageAdapter();
 const nextNodeIndex = (nodes: WorkflowNode[]) => Math.max(0, ...nodes.map(node => node.index)) + 1;
 const createRunId = () => typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `run-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function Home() {
-  const [workflow, dispatch] = useReducer(workflowReducer, undefined, () => createInitialWorkflow());
+  const [workflowHistory, setWorkflowHistory] = useState<WorkflowHistory>(() => createWorkflowHistory(createInitialWorkflow()));
+  const workflow = workflowHistory.present;
+  const dispatch = useCallback((action: Parameters<typeof workflowReducer>[1]) => {
+    setWorkflowHistory(history => commitWorkflow(history, workflowReducer(history.present, action)));
+  }, []);
   const [execution, dispatchExecution] = useReducer(executionReducer, {} as ExecutionState);
   const [proposalState, dispatchProposal] = useReducer(proposalReducer, {});
   const [leftOpen, setLeftOpen] = useState(false);
@@ -42,6 +49,11 @@ export default function Home() {
   const resumeMutation = trpc.execution.resume.useMutation();
   const proposalMutation = trpc.execution.proposeNode.useMutation();
   const [requestingProposalNodeId, setRequestingProposalNodeId] = useState<string>();
+  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
+  const [libraryMode, setLibraryMode] = useState<"templates" | "starters">();
+  const [focusRequest, setFocusRequest] = useState<{ nodeId: string; key: number }>();
+  const [workflowNotice, setWorkflowNotice] = useState<string>();
+  const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.documentElement.dataset.appearance = appearance;
@@ -51,10 +63,13 @@ export default function Home() {
   useEffect(() => {
     let mounted = true;
     storage.load("local-articulate-workflow").then(saved => {
-      if (mounted && saved) dispatch({ type: "replace", workflow: saved });
+      if (mounted && saved) setWorkflowHistory(createWorkflowHistory(saved));
     });
     return () => { mounted = false; };
   }, []);
+
+  useEffect(() => { setTemplates(templateStorage.load()); }, []);
+  useEffect(() => { templateStorage.save(templates); }, [templates]);
 
   useEffect(() => {
     let mounted = true;
@@ -350,6 +365,52 @@ export default function Home() {
     }
   };
 
+  const onWorkflowAction = (action: "save-template" | "duplicate" | "templates" | "starters" | "import" | "export" | "share" | "publish") => {
+    if (action === "duplicate") { setWorkflowHistory(createWorkflowHistory(duplicateWorkflow(workflow))); setWorkflowNotice("Workflow duplicated locally."); return; }
+    if (action === "templates") { setLibraryMode("templates"); return; }
+    if (action === "starters") { setLibraryMode("starters"); return; }
+    if (action === "import") { importRef.current?.click(); return; }
+    if (action === "export" || action === "share") {
+      const payload = JSON.stringify(createWorkflowExport(workflow), null, 2);
+      if (action === "export") {
+        const url = URL.createObjectURL(new Blob([payload], { type: "application/json" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${workflow.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "workflow"}.articulate.json`;
+        link.click();
+        URL.revokeObjectURL(url);
+        setWorkflowNotice("Workflow exported.");
+      } else if (navigator.share) {
+        navigator.share({ title: workflow.name, text: payload })
+          .then(() => setWorkflowNotice("Workflow shared."))
+          .catch(() => undefined);
+      } else {
+        navigator.clipboard?.writeText(payload).then(() => setWorkflowNotice("Workflow data copied. Share it with another Articulate user to import.")).catch(() => setWorkflowNotice("Unable to copy workflow data."));
+      }
+      return;
+    }
+    const template = createWorkflowTemplate(workflow, `${workflow.name} template`);
+    setTemplates(current => [action === "publish" ? publishWorkflowTemplate(template) : template, ...current]);
+    setWorkflowNotice(action === "publish" ? "Workflow published to your local reusable templates." : "Workflow saved as a template.");
+    if (action === "save-template") setLibraryMode("templates");
+  };
+
+  const onImportWorkflow = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    file.text().then(text => {
+      setWorkflowHistory(createWorkflowHistory(parseWorkflowExport(text)));
+      setWorkflowNotice("Workflow imported.");
+    }).catch(error => setWorkflowNotice(error instanceof Error ? error.message : "Unable to import workflow."));
+  };
+
+  const onChooseTemplate = (template: WorkflowTemplate) => {
+    setWorkflowHistory(createWorkflowHistory(duplicateWorkflow(template.workflow)));
+    setLibraryMode(undefined);
+    setWorkflowNotice(`Loaded ${template.name}.`);
+  };
+
   return (
     <div className="articulate-shell" data-appearance={appearance}>
       <WorkflowCanvas
@@ -371,14 +432,18 @@ export default function Home() {
         agentStatuses={agentStatuses}
         requestingProposalNodeId={requestingProposalNodeId}
         onRequestNodeProposal={requestNodeProposal}
+        focusRequest={focusRequest}
       />
       <LeftPanel open={leftOpen} onToggle={() => setLeftOpen(open => !open)} onAddNode={addNode} onCopy={copySelection} canCopy={selectedNodes.length > 0} />
       <RightPanel open={rightOpen} node={selectedNode} execution={execution} nodes={workflow.nodes} onToggle={() => setRightOpen(open => !open)} onConfigChange={onConfigChange} />
-      <TopPanel open={topOpen} appearance={appearance} onToggle={() => setTopOpen(open => !open)} onAppearanceChange={setAppearance} onPaste={pasteSelection} canPaste={clipboard.current.length > 0} />
+      <TopPanel open={topOpen} appearance={appearance} workflowName={workflow.name} nodes={workflow.nodes} canUndo={workflowHistory.past.length > 0} canRedo={workflowHistory.future.length > 0} onToggle={() => setTopOpen(open => !open)} onAppearanceChange={setAppearance} onUndo={() => setWorkflowHistory(undoWorkflow)} onRedo={() => setWorkflowHistory(redoWorkflow)} onFocusNode={nodeId => { dispatch({ type: "set-selection", selection: { nodeIds: [nodeId], edgeIds: [] } }); setFocusRequest({ nodeId, key: Date.now() }); }} onWorkflowAction={onWorkflowAction} />
       <div className="shortcut-strip"><span><kbd>SPACE + DRAG</kbd> PAN</span><span><kbd>SHIFT + DRAG</kbd> SELECT</span><span><kbd>⌘/CTRL C/V</kbd> COPY / PASTE</span></div>
       {rawNode && <RawDataView workflow={workflow} node={rawNode} onClose={() => setRawNodeId(undefined)} />}
       {tunnelSourceNode && <TunnelTargetPicker source={tunnelSourceNode} nodes={workflow.nodes} onConfirm={onTunnelDocuments} onClose={() => setTunnelSourceNodeId(undefined)} />}
       {proposalState.pending && <ProposalApprovalDialog pending={proposalState.pending} sourceTitle={workflow.nodes.find(node => node.id === proposalState.pending?.sourceNodeId)?.title ?? "AI Agent"} onApprove={() => resolveProposal(true)} onDecline={() => resolveProposal(false)} />}
+      {libraryMode && <WorkflowLibraryDialog mode={libraryMode} templates={libraryMode === "starters" ? createStarterWorkflows() : templates} onChoose={onChooseTemplate} onClose={() => setLibraryMode(undefined)} />}
+      <input ref={importRef} className="visually-hidden" type="file" accept="application/json,.json,.articulate.json" onChange={onImportWorkflow} />
+      {workflowNotice && <button className="workflow-notice" type="button" onClick={() => setWorkflowNotice(undefined)}>{workflowNotice}</button>}
     </div>
   );
 }

@@ -48,3 +48,8 @@
 - [x] Add compact status controls to Input and AI Agent nodes that display only safe execution state.
 - [x] Let Input and AI Agent runs request a typed node proposal through the server and require explicit user approval before creation.
 - [x] Test status safety and approval gating, visually validate the node UI, and save the AI-status checkpoint.
+- [x] Define local workflow history, template, sharing, and import-export contracts that preserve workflow graph data.
+- [x] Add undo and redo workflow state transitions plus top-menu node search by name or number.
+- [x] Add workflow duplication, saved templates, starter workflows, and JSON import-export controls.
+- [x] Add local-ready sharing and reusable-template publishing flows with clear persistence boundaries.
+- [x] Test workflow-level operations, visually validate the top-menu experience, and save the workflow-controls checkpoint.
