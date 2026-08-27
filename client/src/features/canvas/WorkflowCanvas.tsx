@@ -4,7 +4,7 @@ import { WorkflowNode } from "../nodes/WorkflowNode";
 import { ExecutionState } from "../execution/executionState";
 import { SafeAgentStatus } from "@shared/execution";
 import { createWorkflowEdge, getDerivedBypassEdges, getNodeDimensions, getWorkflowGroupForNode, GraphPosition, isWorkflowEdgeEnabled, isWorkflowNodeBypassed, NodeConfiguration, WorkflowEdge, WorkflowGroup, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
-import { getMinimapLayout, getViewportWorldRectangle, MINIMAP_HEIGHT, MINIMAP_WIDTH, minimapPointFromWorld, worldPointFromMinimap } from "./minimap";
+import { getMinimapLayout, getViewportWorldRectangle, isWorldRectangleVisible, MINIMAP_HEIGHT, MINIMAP_WIDTH, minimapPointFromWorld, worldPointFromMinimap } from "./minimap";
 
 type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw" | "tunnel";
 
@@ -15,6 +15,8 @@ type CanvasProps = {
   selection: WorkflowSelection;
   onSelectionChange: (selection: WorkflowSelection) => void;
   onMoveNodes: (positions: Record<string, GraphPosition>) => void;
+  onMoveStart: () => void;
+  onMoveEnd: () => void;
   onAddEdge: (edge: WorkflowEdge) => void;
   onToggleEdge: (edgeId: string) => void;
   onDeleteEdge: (edgeId: string) => void;
@@ -76,6 +78,8 @@ export function WorkflowCanvas({
   selection,
   onSelectionChange,
   onMoveNodes,
+  onMoveStart,
+  onMoveEnd,
   onAddEdge,
   onToggleEdge,
   onDeleteEdge,
@@ -133,7 +137,7 @@ export function WorkflowCanvas({
   );
   const derivedBypassEdges = useMemo(
     () => getDerivedBypassEdges({ id: "canvas", name: "", nodes, edges, groups, selection, updatedAt: 0 }),
-    [nodes, edges, groups, selection],
+    [nodes, edges, groups],
   );
   const getStagePoint = (event: { clientX: number; clientY: number }) => {
     const rect = stageRef.current?.getBoundingClientRect();
@@ -189,6 +193,7 @@ export function WorkflowCanvas({
       nodes.filter(candidate => nodeIds.includes(candidate.id)).map(candidate => [candidate.id, { ...candidate.position }]),
     );
     stageRef.current?.setPointerCapture(event.pointerId);
+    onMoveStart();
     setInteraction({ kind: "node", start: getStagePoint(event), positions });
   };
 
@@ -223,6 +228,7 @@ export function WorkflowCanvas({
     if (!interaction) return;
     if (interaction.kind === "pan" && !interaction.moved) onSelectionChange({ nodeIds: [], edgeIds: [] });
     if (interaction.kind === "marquee") selectNodesWithin(interaction.start, interaction.current);
+    if (interaction.kind === "node") onMoveEnd();
     if (interaction.kind === "connect") {
       const target = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-port-node-id]") as HTMLElement | null;
       const targetId = target?.dataset.portNodeId;
@@ -264,6 +270,18 @@ export function WorkflowCanvas({
     [nodes, viewport, stageSize],
   );
   const minimapViewport = getViewportWorldRectangle(viewport, stageSize);
+  const visibleNodes = useMemo(() => {
+    const padding = 420 / Math.max(viewport.zoom, 0.3);
+    return nodes.filter(node => {
+      const dimensions = getNodeDimensions(node);
+      return selection.nodeIds.includes(node.id) || isWorldRectangleVisible(
+        { left: node.position.x, top: node.position.y, width: dimensions.width, height: dimensions.height },
+        minimapViewport,
+        padding,
+      );
+    });
+  }, [nodes, selection.nodeIds, minimapViewport, viewport.zoom]);
+  const visibleNodeIds = useMemo(() => new Set(visibleNodes.map(node => node.id)), [visibleNodes]);
   const minimapViewportOrigin = minimapPointFromWorld(minimapLayout, { x: minimapViewport.left, y: minimapViewport.top });
   const moveViewportFromMinimapPointer = (event: PointerEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
@@ -289,7 +307,7 @@ export function WorkflowCanvas({
       onPointerDown={onStagePointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={() => setInteraction(null)}
+      onPointerCancel={() => { if (interaction?.kind === "node") onMoveEnd(); setInteraction(null); }}
       onWheel={onWheel}
       style={{ backgroundSize: `${GRID * viewport.zoom}px ${GRID * viewport.zoom}px`, backgroundPosition: `${viewport.x}px ${viewport.y}px` }}
     >
@@ -298,7 +316,7 @@ export function WorkflowCanvas({
           {edges.map(edge => {
             const source = byId.get(edge.source);
             const target = byId.get(edge.target);
-            if (!source || !target) return null;
+            if (!source || !target || (!visibleNodeIds.has(source.id) && !visibleNodeIds.has(target.id))) return null;
             const enabled = isWorkflowEdgeEnabled(edge);
             return (
               <path
@@ -312,7 +330,7 @@ export function WorkflowCanvas({
           {derivedBypassEdges.map(edge => {
             const source = byId.get(edge.source);
             const target = byId.get(edge.target);
-            if (!source || !target) return null;
+            if (!source || !target || (!visibleNodeIds.has(source.id) && !visibleNodeIds.has(target.id))) return null;
             return <path key={edge.id} className="workflow-rope is-bypass-route" d={curve(nodeCenter(source, "out"), nodeCenter(target, "in"))} />;
           })}
           {draggingRope?.from && <path className="workflow-rope is-drawing" d={curve(nodeCenter(draggingRope.from, "out"), draggingRope.to)} />}
@@ -341,7 +359,7 @@ export function WorkflowCanvas({
             )}
           </div>
         )}
-        {nodes.map(node => (
+        {visibleNodes.map(node => (
           (() => {
             const nodeExecution = execution[node.id] ?? Object.values(execution).find(record => record.agentNodeId === node.id);
             return (

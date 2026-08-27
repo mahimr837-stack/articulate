@@ -101,6 +101,63 @@ export type WorkflowState = {
   updatedAt: number;
 };
 
+/**
+ * Brings local, imported, and older workflow snapshots to the current graph contract.
+ * It preserves valid graph data while removing references that cannot resolve inside
+ * the snapshot, so later editor operations never need to trust unvalidated storage.
+ */
+export function normalizeWorkflow(workflow: WorkflowState | Partial<WorkflowState>): WorkflowState {
+  const rawNodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
+  const nodeIds = new Set<string>();
+  const usedIndexes = new Set<number>();
+  let nextIndex = 1;
+  const nodes = rawNodes.filter((node): node is WorkflowNode => {
+    const valid = Boolean(node?.id && node?.type && Object.prototype.hasOwnProperty.call(nodeCatalog, node.type) && !nodeIds.has(node.id));
+    if (valid) nodeIds.add(node.id);
+    return valid;
+  }).map(node => {
+    const originalIndex = Number(node.index);
+    while (usedIndexes.has(nextIndex)) nextIndex += 1;
+    const index = Number.isInteger(originalIndex) && originalIndex > 0 && !usedIndexes.has(originalIndex)
+      ? originalIndex
+      : nextIndex;
+    usedIndexes.add(index);
+    return {
+      ...node,
+      index,
+      position: node.position && Number.isFinite(node.position.x) && Number.isFinite(node.position.y) ? node.position : { x: 0, y: 0 },
+      config: node.config ?? {},
+      locked: node.locked ?? false,
+      bypassed: node.bypassed ?? false,
+      disabled: node.disabled ?? false,
+    };
+  });
+  const edges = (Array.isArray(workflow.edges) ? workflow.edges : [])
+    .filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target))
+    .map(edge => createWorkflowEdge(edge));
+  const edgeIds = new Set(edges.map(edge => edge.id));
+  const groupedNodeIds = new Set<string>();
+  const groups = (Array.isArray(workflow.groups) ? workflow.groups : []).flatMap(group => {
+    const nodeIdsInGroup = Array.from(new Set(group.nodeIds ?? [])).filter(nodeId => nodeIds.has(nodeId) && !groupedNodeIds.has(nodeId));
+    nodeIdsInGroup.forEach(nodeId => groupedNodeIds.add(nodeId));
+    return nodeIdsInGroup.length > 1
+      ? [{ ...group, nodeIds: nodeIdsInGroup, locked: group.locked ?? false, createdAt: group.createdAt ?? Date.now() }]
+      : [];
+  });
+  return {
+    id: workflow.id || "local-articulate-workflow",
+    name: workflow.name?.trim() || "Untitled workflow",
+    nodes,
+    edges,
+    groups,
+    selection: {
+      nodeIds: Array.from(new Set(workflow.selection?.nodeIds ?? [])).filter(nodeId => nodeIds.has(nodeId)),
+      edgeIds: Array.from(new Set(workflow.selection?.edgeIds ?? [])).filter(edgeId => edgeIds.has(edgeId)),
+    },
+    updatedAt: Number.isFinite(workflow.updatedAt) ? workflow.updatedAt! : Date.now(),
+  };
+}
+
 export type NodeCatalogItem = {
   label: string;
   eyebrow: string;
@@ -175,7 +232,7 @@ export function createNodeGroup(id: string, nodeIds: string[]): WorkflowGroup {
 }
 
 export function getWorkflowGroupForNode(workflow: WorkflowState, nodeId: string) {
-  return workflow.groups.find(group => group.nodeIds.includes(nodeId));
+  return (workflow.groups ?? []).find(group => group.nodeIds.includes(nodeId));
 }
 
 export function createSelectedExecutionEdges(workflow: WorkflowState, nodeIds: string[], executionId: string) {
@@ -238,35 +295,42 @@ export function getDerivedBypassEdges(workflow: WorkflowState): WorkflowEdge[] {
   const originalPairs = new Set(routableEdges.map(edge => `${edge.source}:${edge.target}`));
   const derivedPairs = new Set<string>();
 
+  const outbound = new Map<string, WorkflowEdge[]>();
+  routableEdges.forEach(edge => outbound.set(edge.source, [...(outbound.get(edge.source) ?? []), edge]));
+
   return workflow.nodes
-    .filter(isWorkflowNodeBypassed)
-    .flatMap(node => {
-      const incoming = routableEdges.filter(edge => edge.target === node.id);
-      const outgoing = routableEdges.filter(edge => edge.source === node.id);
-      return incoming.flatMap(sourceEdge =>
-        outgoing.flatMap(targetEdge => {
-          const pair = `${sourceEdge.source}:${targetEdge.target}`;
-          if (
-            sourceEdge.source === targetEdge.target ||
-            bypassedNodeIds.has(sourceEdge.source) ||
-            bypassedNodeIds.has(targetEdge.target) ||
-            originalPairs.has(pair) ||
-            derivedPairs.has(pair)
-          ) {
-            return [];
+    .filter(node => !bypassedNodeIds.has(node.id))
+    .flatMap(sourceNode => {
+      const routes: WorkflowEdge[] = [];
+      const queue = (outbound.get(sourceNode.id) ?? [])
+        .filter(edge => bypassedNodeIds.has(edge.target))
+        .map(edge => ({ edge, firstBypassId: edge.target }));
+      const visited = new Set<string>();
+      while (queue.length) {
+        const current = queue.shift()!;
+        const bypassId = current.edge.target;
+        if (visited.has(bypassId)) continue;
+        visited.add(bypassId);
+        for (const nextEdge of outbound.get(bypassId) ?? []) {
+          if (bypassedNodeIds.has(nextEdge.target)) {
+            queue.push({ edge: nextEdge, firstBypassId: current.firstBypassId });
+            continue;
           }
+          const pair = `${sourceNode.id}:${nextEdge.target}`;
+          if (sourceNode.id === nextEdge.target || originalPairs.has(pair) || derivedPairs.has(pair)) continue;
           derivedPairs.add(pair);
-          return [createWorkflowEdge({
-            id: `bypass:${node.id}:${sourceEdge.id}:${targetEdge.id}`,
-            source: sourceEdge.source,
-            target: targetEdge.target,
+          routes.push(createWorkflowEdge({
+            id: `bypass:${sourceNode.id}:${current.firstBypassId}:${nextEdge.id}`,
+            source: sourceNode.id,
+            target: nextEdge.target,
             sourcePort: "out",
             targetPort: "in",
             mode: "temporary",
-            metadata: { label: "Bypass", viaNodeId: node.id, derived: true },
-          })];
-        }),
-      );
+            metadata: { label: "Bypass", viaNodeId: current.firstBypassId, derived: true },
+          }));
+        }
+      }
+      return routes;
     });
 }
 

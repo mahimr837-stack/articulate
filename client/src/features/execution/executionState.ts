@@ -3,6 +3,7 @@ import { NodeProposal, SafeAgentStatus, WorkflowExecutionStatus } from "@shared/
 export type ExecutionHistoryStep = {
   id: string;
   nodeId: string;
+  nodeTitle: string;
   kind: "input" | "agent" | "output";
   status: WorkflowExecutionStatus;
   startedAt: number;
@@ -13,6 +14,8 @@ export type ExecutionHistoryStep = {
 export type NodeExecution = {
   runId?: string;
   agentNodeId?: string;
+  inputNodeTitle?: string;
+  agentNodeTitle?: string;
   status: WorkflowExecutionStatus;
   safeStatus?: SafeAgentStatus;
   proposal?: NodeProposal;
@@ -30,7 +33,7 @@ export type ExecutionState = Record<string, NodeExecution>;
 
 export type ExecutionAction =
   | { type: "hydrate"; records: ExecutionState }
-  | { type: "start"; inputNodeId: string; runId: string; agentNodeId: string; status: "running" | "retrying"; at?: number }
+  | { type: "start"; inputNodeId: string; runId: string; agentNodeId: string; status: "running" | "retrying"; inputNodeTitle?: string; agentNodeTitle?: string; at?: number }
   | { type: "settle"; inputNodeId: string; result: Omit<NodeExecution, "updatedAt" | "history" | "startedAt" | "resumedAt" | "completedAt" | "durationMs" | "accumulatedDurationMs">; at?: number }
   | { type: "fail"; inputNodeId: string; error: string; at?: number };
 
@@ -49,11 +52,11 @@ const historyFor = (inputNodeId: string, execution: NodeExecution, endedAt?: num
   const durationMs = getExecutionDuration(execution, endedAt ?? execution.updatedAt);
   const agentStatus = execution.status;
   const steps: ExecutionHistoryStep[] = [
-    { id: `${execution.runId}:input`, nodeId: inputNodeId, kind: "input", status: "completed", startedAt: execution.startedAt, completedAt: execution.startedAt, durationMs: 0 },
-    { id: `${execution.runId}:agent`, nodeId: execution.agentNodeId, kind: "agent", status: agentStatus, startedAt: execution.startedAt, completedAt: endedAt, durationMs },
+    { id: `${execution.runId}:input`, nodeId: inputNodeId, nodeTitle: execution.inputNodeTitle ?? "Input", kind: "input", status: "completed", startedAt: execution.startedAt, completedAt: execution.startedAt, durationMs: 0 },
+    { id: `${execution.runId}:agent`, nodeId: execution.agentNodeId, nodeTitle: execution.agentNodeTitle ?? "AI Agent", kind: "agent", status: agentStatus, startedAt: execution.startedAt, completedAt: endedAt, durationMs },
   ];
   if (agentStatus === "completed") {
-    steps.push({ id: `${execution.runId}:output`, nodeId: `output:${execution.runId}`, kind: "output", status: "completed", startedAt: endedAt ?? execution.updatedAt, completedAt: endedAt ?? execution.updatedAt, durationMs: 0 });
+    steps.push({ id: `${execution.runId}:output`, nodeId: `output:${execution.runId}`, nodeTitle: "Output", kind: "output", status: "completed", startedAt: endedAt ?? execution.updatedAt, completedAt: endedAt ?? execution.updatedAt, durationMs: 0 });
   }
   return steps;
 };
@@ -65,23 +68,48 @@ export function formatDuration(durationMs?: number) {
   return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
 }
 
+/** Active requests cannot survive a browser reload, so restore them as paused and resumable. */
+export function normalizeExecutionState(records: ExecutionState): ExecutionState {
+  return Object.fromEntries(Object.entries(records).flatMap(([inputNodeId, record]) => {
+    if (!record || !record.status || !Array.isArray(record.history)) return [];
+    const interrupted = isActive(record.status);
+    const accumulatedDurationMs = getExecutionDuration(record, record.updatedAt || Date.now());
+    const normalized: NodeExecution = {
+      ...record,
+      status: interrupted ? "paused" : record.status,
+      safeStatus: interrupted ? "waiting" : record.safeStatus,
+      resumedAt: undefined,
+      accumulatedDurationMs,
+      durationMs: interrupted ? accumulatedDurationMs : record.durationMs,
+      history: record.history.map(step => ({
+        ...step,
+        nodeTitle: step.nodeTitle ?? (step.kind === "input" ? "Input" : step.kind === "agent" ? "AI Agent" : "Output"),
+      })),
+      updatedAt: record.updatedAt || Date.now(),
+    };
+    return [[inputNodeId, normalized]];
+  }));
+}
+
 export function executionReducer(state: ExecutionState, action: ExecutionAction): ExecutionState {
   switch (action.type) {
     case "hydrate":
-      return action.records;
+      return normalizeExecutionState(action.records);
     case "start": {
       const now = action.at ?? Date.now();
       const previous = state[action.inputNodeId];
       const resuming = previous?.runId === action.runId && previous.status === "paused";
       const execution: NodeExecution = {
         runId: action.runId,
-          agentNodeId: action.agentNodeId,
-          status: action.status,
-          safeStatus: "processing",
-          startedAt: resuming ? previous.startedAt : now,
+        agentNodeId: action.agentNodeId,
+        inputNodeTitle: resuming ? previous?.inputNodeTitle : action.inputNodeTitle,
+        agentNodeTitle: resuming ? previous?.agentNodeTitle : action.agentNodeTitle,
+        status: action.status,
+        safeStatus: "processing",
+        startedAt: resuming ? previous?.startedAt : now,
         resumedAt: now,
-        accumulatedDurationMs: resuming ? getExecutionDuration(previous, previous.updatedAt) : 0,
-        history: resuming ? previous.history : [],
+        accumulatedDurationMs: resuming && previous ? getExecutionDuration(previous, previous.updatedAt) : 0,
+        history: resuming && previous ? previous.history : [],
         updatedAt: now,
       };
       return { ...state, [action.inputNodeId]: execution };

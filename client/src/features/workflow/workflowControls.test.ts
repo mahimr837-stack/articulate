@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createInitialWorkflow } from "./types";
-import { commitWorkflow, createStarterWorkflows, createWorkflowExport, createWorkflowHistory, duplicateWorkflow, parseWorkflowExport, redoWorkflow, searchWorkflowNodes, undoWorkflow } from "./workflowControls";
+import { commitWorkflow, createStarterWorkflows, createWorkflowExport, createWorkflowHistory, createWorkflowTemplate, duplicateWorkflow, parseWorkflowExport, redoWorkflow, searchWorkflowNodes, undoWorkflow } from "./workflowControls";
 
 describe("workflow-level controls", () => {
   it("undoes and redoes complete workflow graph snapshots", () => {
@@ -23,6 +23,16 @@ describe("workflow-level controls", () => {
     expect(createStarterWorkflows()).toHaveLength(3);
   });
 
+  it("captures independent normalized template and export snapshots", () => {
+    const workflow = createInitialWorkflow();
+    const template = createWorkflowTemplate(workflow, "Snapshot");
+    const exported = createWorkflowExport(workflow);
+    workflow.nodes[0]!.title = "Changed later";
+
+    expect(template.workflow.nodes[0]?.title).not.toBe("Changed later");
+    expect(exported.workflow.nodes[0]?.title).not.toBe("Changed later");
+  });
+
   it("duplicates the whole graph with fresh workflow and node identities", () => {
     const original = createInitialWorkflow();
     const copy = duplicateWorkflow(original);
@@ -30,5 +40,17 @@ describe("workflow-level controls", () => {
     expect(copy.nodes.map(node => node.id)).not.toEqual(original.nodes.map(node => node.id));
     expect(copy.edges).toHaveLength(original.edges.length);
     expect(copy.name).toBe(`Copy of ${original.name}`);
+  });
+
+  it("remaps group membership only to duplicated nodes", () => {
+    const original = createInitialWorkflow();
+    const groupNodeIds = original.nodes.slice(0, 2).map(node => node.id);
+    const grouped = { ...original, groups: [{ id: "group-1", nodeIds: groupNodeIds, locked: true, createdAt: 1 }] };
+    const copy = duplicateWorkflow(grouped);
+
+    expect(copy.groups).toHaveLength(1);
+    expect(copy.groups[0]?.locked).toBe(true);
+    expect(copy.groups[0]?.nodeIds).not.toEqual(groupNodeIds);
+    expect(copy.groups[0]?.nodeIds.every(id => copy.nodes.some(node => node.id === id))).toBe(true);
   });
 });

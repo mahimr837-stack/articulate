@@ -65,3 +65,5 @@
 - [ ] Add a top-menu Delete Workflow action with a dedicated confirmation dashboard, required manually typed text, and paste rejection before permanent deletion.
 - [x] Add a minimal interactive workflow minimap that derives from the existing nodes, connections, and viewport, appears during navigation, and fades when inactive.
 - [x] Integrate the supplied Articulate logo thinking animation with actual safe AI processing states and restore the exact static logo immediately when execution pauses, completes, or fails.
+- [x] Audit and refactor shared workflow, node, connection, execution, persistence, history, and inspection contracts for extensibility and reliability without changing intended behavior.
+- [ ] Verify canvas scalability, minimap synchronization, theme consistency, editor interaction safety, collaboration access boundaries, approval persistence, and regression coverage across all existing capabilities.

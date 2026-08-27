@@ -72,6 +72,17 @@ describe("WorkflowExecutionService", () => {
     expect((await service.resume(validRequest.runId)).status).toBe("completed");
   });
 
+  it("recovers a paused execution from the persisted request if the server process no longer has run memory", async () => {
+    const service = new WorkflowExecutionService(catalog, async () => ({
+      id: "completion-recovered",
+      created: 0,
+      model: "gpt-5-mini",
+      choices: [{ index: 0, message: { role: "assistant", content: "Recovered output" }, finish_reason: "stop" }],
+    }));
+
+    await expect(service.resume(validRequest.runId, validRequest)).resolves.toMatchObject({ status: "completed", output: "Recovered output" });
+  });
+
   it("returns a failed result for invalid empty workflow input", async () => {
     const service = new WorkflowExecutionService(catalog, async () => {
       throw new Error("not called");

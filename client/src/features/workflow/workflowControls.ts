@@ -1,4 +1,4 @@
-import { createInitialWorkflow, createNode, createWorkflowEdge, WorkflowNode, WorkflowState } from "./types";
+import { createInitialWorkflow, createNode, createWorkflowEdge, normalizeWorkflow, WorkflowNode, WorkflowState } from "./types";
 
 export type WorkflowHistory = {
   past: WorkflowState[];
@@ -54,12 +54,14 @@ export function searchWorkflowNodes(nodes: WorkflowNode[], query: string) {
 
 export function createWorkflowTemplate(workflow: WorkflowState, name: string, description = "") : WorkflowTemplate {
   const now = Date.now();
-  return { id: id("template"), name: name.trim() || workflow.name, description: description.trim(), workflow, createdAt: now, updatedAt: now, published: false };
+  const snapshot = normalizeWorkflow(JSON.parse(JSON.stringify(workflow)) as WorkflowState);
+  return { id: id("template"), name: name.trim() || snapshot.name, description: description.trim(), workflow: snapshot, createdAt: now, updatedAt: now, published: false };
 }
 
 export function duplicateWorkflow(workflow: WorkflowState): WorkflowState {
+  const source = normalizeWorkflow(workflow);
   const nodeMap = new Map<string, string>();
-  const nodes = workflow.nodes.map(node => {
+  const nodes = source.nodes.map(node => {
     const duplicate = createNode(node.type, { ...node.position }, node.index, {
       title: node.title,
       locked: node.locked,
@@ -71,17 +73,22 @@ export function duplicateWorkflow(workflow: WorkflowState): WorkflowState {
     return duplicate;
   });
   return {
-    ...workflow,
+    ...source,
     id: id("workflow"),
-    name: `Copy of ${workflow.name}`,
+    name: `Copy of ${source.name}`,
     nodes,
-    edges: workflow.edges.map(edge => createWorkflowEdge({
+    edges: source.edges.map(edge => createWorkflowEdge({
       ...edge,
       id: id("edge"),
       source: nodeMap.get(edge.source) ?? edge.source,
       target: nodeMap.get(edge.target) ?? edge.target,
       metadata: edge.metadata ? { ...edge.metadata } : undefined,
     })),
+    groups: source.groups.map(group => ({
+      ...group,
+      id: id("group"),
+      nodeIds: group.nodeIds.map(nodeId => nodeMap.get(nodeId)).filter((nodeId): nodeId is string => Boolean(nodeId)),
+    })).filter(group => group.nodeIds.length > 1),
     selection: { nodeIds: [], edgeIds: [] },
     updatedAt: Date.now(),
   };
@@ -92,7 +99,7 @@ export function publishWorkflowTemplate(template: WorkflowTemplate): WorkflowTem
 }
 
 export function createWorkflowExport(workflow: WorkflowState): WorkflowExport {
-  return { kind: "articulate-workflow", version: 1, exportedAt: Date.now(), workflow };
+  return { kind: "articulate-workflow", version: 1, exportedAt: Date.now(), workflow: normalizeWorkflow(JSON.parse(JSON.stringify(workflow)) as WorkflowState) };
 }
 
 export function parseWorkflowExport(value: string): WorkflowState {
@@ -100,7 +107,7 @@ export function parseWorkflowExport(value: string): WorkflowState {
   if (parsed.kind !== "articulate-workflow" || parsed.version !== 1 || !parsed.workflow || !Array.isArray(parsed.workflow.nodes) || !Array.isArray(parsed.workflow.edges)) {
     throw new Error("This file is not a valid Articulate workflow export.");
   }
-  return parsed.workflow;
+  return normalizeWorkflow(parsed.workflow);
 }
 
 export function createStarterWorkflows(): WorkflowTemplate[] {

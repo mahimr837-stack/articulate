@@ -83,3 +83,10 @@ export function worldPointFromMinimap(layout: MinimapLayout, point: { x: number;
     y: layout.bounds.top + (point.y - layout.offsetY) / layout.scale,
   };
 }
+
+export function isWorldRectangleVisible(rectangle: WorldRectangle, viewport: WorldRectangle, padding = 0) {
+  return rectangle.left + rectangle.width >= viewport.left - padding
+    && rectangle.left <= viewport.left + viewport.width + padding
+    && rectangle.top + rectangle.height >= viewport.top - padding
+    && rectangle.top <= viewport.top + viewport.height + padding;
+}

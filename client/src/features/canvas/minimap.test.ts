@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getMinimapLayout, getViewportWorldRectangle, minimapPointFromWorld, worldPointFromMinimap } from "./minimap";
+import { getMinimapLayout, getViewportWorldRectangle, isWorldRectangleVisible, minimapPointFromWorld, worldPointFromMinimap } from "./minimap";
 import { createInitialWorkflow } from "../workflow/types";
 
 describe("workflow minimap geometry", () => {
@@ -21,5 +21,11 @@ describe("workflow minimap geometry", () => {
     const target = { x: 250, y: 160 };
     const miniPoint = minimapPointFromWorld(layout, target);
     expect(worldPointFromMinimap(layout, miniPoint)).toEqual(target);
+  });
+
+  it("identifies visible rectangles so the canvas can avoid mounting distant node UI", () => {
+    const visible = { left: 0, top: 0, width: 100, height: 100 };
+    expect(isWorldRectangleVisible({ left: 90, top: 20, width: 30, height: 20 }, visible)).toBe(true);
+    expect(isWorldRectangleVisible({ left: 150, top: 20, width: 30, height: 20 }, visible, 20)).toBe(false);
   });
 });

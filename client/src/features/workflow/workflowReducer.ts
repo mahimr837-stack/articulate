@@ -1,4 +1,4 @@
-import { createNodeGroup, createSelectedExecutionEdges, createWorkflowEdge, isWorkflowEdgeEnabled, WorkflowEdge, WorkflowNode, WorkflowSelection, WorkflowState } from "./types";
+import { createNodeGroup, createSelectedExecutionEdges, createWorkflowEdge, isWorkflowEdgeEnabled, normalizeWorkflow, WorkflowEdge, WorkflowNode, WorkflowSelection, WorkflowState } from "./types";
 
 export type WorkflowAction =
   | { type: "replace"; workflow: WorkflowState }
@@ -27,16 +27,7 @@ const stamp = (state: WorkflowState, patch: Partial<WorkflowState>): WorkflowSta
 export function workflowReducer(state: WorkflowState, action: WorkflowAction): WorkflowState {
   switch (action.type) {
     case "replace":
-      return {
-        ...action.workflow,
-        nodes: action.workflow.nodes.map(node => ({
-          ...node,
-          bypassed: node.bypassed ?? false,
-          disabled: node.disabled ?? false,
-        })),
-        edges: action.workflow.edges.map(edge => createWorkflowEdge(edge)),
-        groups: (action.workflow.groups ?? []).map(group => ({ ...group, nodeIds: group.nodeIds.filter(nodeId => action.workflow.nodes.some(node => node.id === nodeId)), locked: group.locked ?? false })),
-      };
+      return normalizeWorkflow(action.workflow);
     case "set-selection":
       return { ...state, selection: action.selection };
     case "add-nodes":
@@ -48,13 +39,16 @@ export function workflowReducer(state: WorkflowState, action: WorkflowAction): W
       });
     case "move-nodes":
       {
-        const groupLockedNodeIds = new Set(state.groups.filter(group => group.locked).flatMap(group => group.nodeIds));
-      return stamp(state, {
-        nodes: state.nodes.map(node => {
+        const groupLockedNodeIds = new Set((state.groups ?? []).filter(group => group.locked).flatMap(group => group.nodeIds));
+        let changed = false;
+        const nodes = state.nodes.map(node => {
           const nextPosition = action.positions[node.id];
-          return nextPosition && !node.locked && !groupLockedNodeIds.has(node.id) ? { ...node, position: nextPosition } : node;
-        }),
-      });
+          const canMove = nextPosition && !node.locked && !groupLockedNodeIds.has(node.id);
+          if (!canMove || (node.position.x === nextPosition.x && node.position.y === nextPosition.y)) return node;
+          changed = true;
+          return { ...node, position: nextPosition };
+        });
+        return changed ? stamp(state, { nodes }) : state;
       }
     case "update-node":
       return stamp(state, {
@@ -91,7 +85,7 @@ export function workflowReducer(state: WorkflowState, action: WorkflowAction): W
       return stamp(state, {
         nodes: state.nodes.filter(node => !removed.has(node.id)),
         edges: state.edges.filter(edge => !removed.has(edge.source) && !removed.has(edge.target)),
-        groups: state.groups.map(group => ({ ...group, nodeIds: group.nodeIds.filter(nodeId => !removed.has(nodeId)) })).filter(group => group.nodeIds.length > 1),
+        groups: (state.groups ?? []).map(group => ({ ...group, nodeIds: group.nodeIds.filter(nodeId => !removed.has(nodeId)) })).filter(group => group.nodeIds.length > 1),
         selection: {
           nodeIds: state.selection.nodeIds.filter(nodeId => !removed.has(nodeId)),
           edgeIds: [],
@@ -131,22 +125,26 @@ export function workflowReducer(state: WorkflowState, action: WorkflowAction): W
       const selectedIds = state.selection.nodeIds;
       if (selectedIds.length < 2) return state;
       const selected = new Set(selectedIds);
-      const retainedGroups = state.groups
+      const retainedGroups = (state.groups ?? [])
         .map(group => ({ ...group, nodeIds: group.nodeIds.filter(nodeId => !selected.has(nodeId)) }))
         .filter(group => group.nodeIds.length > 1);
       return stamp(state, { groups: [...retainedGroups, createNodeGroup(action.groupId, selectedIds)] });
     }
     case "ungrip-selected": {
       const selected = new Set(state.selection.nodeIds);
-      return stamp(state, { groups: state.groups.map(group => ({ ...group, nodeIds: group.nodeIds.filter(nodeId => !selected.has(nodeId)) })).filter(group => group.nodeIds.length > 1) });
+      return stamp(state, { groups: (state.groups ?? []).map(group => ({ ...group, nodeIds: group.nodeIds.filter(nodeId => !selected.has(nodeId)) })).filter(group => group.nodeIds.length > 1) });
     }
     case "toggle-group-lock":
-      return stamp(state, { groups: state.groups.map(group => group.id === action.groupId ? { ...group, locked: !group.locked } : group) });
+      return stamp(state, { groups: (state.groups ?? []).map(group => group.id === action.groupId ? { ...group, locked: !group.locked } : group) });
     case "execute-selected": {
       if (state.selection.nodeIds.length < 2) return state;
       const edges = createSelectedExecutionEdges(state, state.selection.nodeIds, action.executionId);
       const existing = new Set(state.edges.map(edge => edge.id));
-      const additions = edges.filter(edge => !existing.has(edge.id));
+      const additions = edges.filter(edge => !existing.has(edge.id) && !state.edges.some(existingEdge =>
+        existingEdge.source === edge.source
+        && existingEdge.target === edge.target
+        && Boolean(existingEdge.metadata?.selectedExecution),
+      ));
       return additions.length ? stamp(state, { edges: [...state.edges, ...additions] }) : state;
     }
     default:

@@ -43,9 +43,7 @@ export function RightPanel({ open, node, execution, nodes, onToggle, onConfigCha
               <div className="history-run-meta"><span>Run</span><strong>{formatDuration(run.durationMs)}</strong></div>
               <ol>
                 {run.history.map((step, index) => {
-                  const nodeTitle = step.kind === "output"
-                    ? "Output"
-                    : nodes.find(candidate => candidate.id === step.nodeId)?.title ?? step.kind;
+                  const nodeTitle = step.nodeTitle ?? nodes.find(candidate => candidate.id === step.nodeId)?.title ?? step.kind;
                   return (
                     <li key={step.id} className={`history-step state-${step.status}`}>
                       <span className="history-order">{index + 1}</span>

@@ -13,7 +13,7 @@ import { LeftPanel } from "../features/panels/LeftPanel";
 import { Appearance, TopPanel } from "../features/panels/TopPanel";
 import { RightPanel } from "../features/panels/RightPanel";
 import { LocalWorkflowStorageAdapter } from "../features/workflow/storage";
-import { createDocumentTunnel, createInitialWorkflow, createNode, createWorkflowEdge, DocumentFile, NodeConfiguration, NodeType, WorkflowNode } from "../features/workflow/types";
+import { createDocumentTunnel, createInitialWorkflow, createNode, createWorkflowEdge, DocumentFile, NodeConfiguration, NodeType, WorkflowNode, WorkflowState } from "../features/workflow/types";
 import { SafeAgentStatus } from "@shared/execution";
 import { workflowReducer } from "../features/workflow/workflowReducer";
 import { commitWorkflow, createStarterWorkflows, createWorkflowExport, createWorkflowHistory, createWorkflowTemplate, duplicateWorkflow, LocalTemplateStorageAdapter, parseWorkflowExport, publishWorkflowTemplate, redoWorkflow, undoWorkflow, WorkflowHistory, WorkflowTemplate } from "../features/workflow/workflowControls";
@@ -29,8 +29,27 @@ const createRunId = () => typeof crypto !== "undefined" && "randomUUID" in crypt
 export default function Home() {
   const [workflowHistory, setWorkflowHistory] = useState<WorkflowHistory>(() => createWorkflowHistory(createInitialWorkflow()));
   const workflow = workflowHistory.present;
+  const dragOrigin = useRef<WorkflowState | undefined>(undefined);
   const dispatch = useCallback((action: Parameters<typeof workflowReducer>[1]) => {
-    setWorkflowHistory(history => commitWorkflow(history, workflowReducer(history.present, action)));
+    setWorkflowHistory(history => {
+      const next = workflowReducer(history.present, action);
+      return action.type === "set-selection" || action.type === "move-nodes"
+        ? { ...history, present: next }
+        : commitWorkflow(history, next);
+    });
+  }, []);
+  const onMoveStart = useCallback(() => {
+    setWorkflowHistory(history => {
+      dragOrigin.current = history.present;
+      return history;
+    });
+  }, []);
+  const onMoveEnd = useCallback(() => {
+    setWorkflowHistory(history => {
+      const origin = dragOrigin.current;
+      dragOrigin.current = undefined;
+      return origin && origin !== history.present ? commitWorkflow({ ...history, present: origin }, history.present) : history;
+    });
   }, []);
   const [execution, dispatchExecution] = useReducer(executionReducer, {} as ExecutionState);
   const [proposalState, dispatchProposal] = useReducer(proposalReducer, {});
@@ -114,7 +133,7 @@ export default function Home() {
     const offset = 36 + pasteCount.current * 8;
     const copies = nodes.map((node, index) => createNode(node.type, { x: node.position.x + offset, y: node.position.y + offset }, nextNodeIndex(workflow.nodes) + index, {
       title: node.title,
-      config: { ...node.config },
+      config: JSON.parse(JSON.stringify(node.config)) as NodeConfiguration,
       locked: false,
     }));
     dispatch({ type: "add-nodes", nodes: copies, select: true });
@@ -122,7 +141,7 @@ export default function Home() {
 
   const copySelection = useCallback(() => {
     if (!selectedNodes.length) return;
-    clipboard.current = selectedNodes.map(node => ({ ...node, position: { ...node.position }, config: { ...node.config } }));
+    clipboard.current = selectedNodes.map(node => ({ ...node, position: { ...node.position }, config: JSON.parse(JSON.stringify(node.config)) as NodeConfiguration }));
     navigator.clipboard?.writeText(JSON.stringify({ kind: "articulate-nodes", nodes: clipboard.current })).catch(() => undefined);
   }, [selectedNodes]);
 
@@ -335,9 +354,14 @@ export default function Home() {
     }
     if (action === "resume") {
       if (!active?.runId || !active.agentNodeId) return;
-      dispatchExecution({ type: "start", inputNodeId, agentNodeId: active.agentNodeId, runId: active.runId, status: "running" });
+      const agent = workflow.nodes.find(node => node.id === active.agentNodeId);
+      if (!agent) {
+        dispatchExecution({ type: "fail", inputNodeId, error: "The AI Agent for this paused execution is no longer in the workflow." });
+        return;
+      }
+      dispatchExecution({ type: "start", inputNodeId, agentNodeId: active.agentNodeId, runId: active.runId, status: "running", inputNodeTitle: input.title, agentNodeTitle: agent.title });
       try {
-        settleExecution(inputNodeId, active.agentNodeId, await resumeMutation.mutateAsync({ runId: active.runId }));
+        settleExecution(inputNodeId, active.agentNodeId, await resumeMutation.mutateAsync({ runId: active.runId, request: { inputNodeId, agentNodeId: active.agentNodeId, prompt: String(input.config.prompt ?? ""), model: String(agent.config.model ?? "Manus 1.6"), provider: String(agent.config.provider ?? "Manus") } }));
       } catch (error) {
         dispatchExecution({ type: "fail", inputNodeId, error: error instanceof Error ? error.message : "Unable to resume the AI Agent." });
       }
@@ -354,7 +378,7 @@ export default function Home() {
       return;
     }
     const runId = createRunId();
-    dispatchExecution({ type: "start", inputNodeId, agentNodeId: agent.id, runId, status: action === "retry" ? "retrying" : "running" });
+    dispatchExecution({ type: "start", inputNodeId, agentNodeId: agent.id, runId, status: action === "retry" ? "retrying" : "running", inputNodeTitle: input.title, agentNodeTitle: agent.title });
     try {
       const result = await runMutation.mutateAsync({
         runId,
@@ -428,6 +452,8 @@ export default function Home() {
         selection={workflow.selection}
         onSelectionChange={selection => dispatch({ type: "set-selection", selection })}
         onMoveNodes={positions => dispatch({ type: "move-nodes", positions })}
+        onMoveStart={onMoveStart}
+        onMoveEnd={onMoveEnd}
         onAddEdge={edge => dispatch({ type: "add-edge", edge })}
         onToggleEdge={edgeId => dispatch({ type: "toggle-edge", edgeId })}
         onDeleteEdge={edgeId => dispatch({ type: "delete-edge", edgeId })}

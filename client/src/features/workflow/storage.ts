@@ -1,4 +1,4 @@
-import { WorkflowState } from "./types";
+import { normalizeWorkflow, WorkflowState } from "./types";
 
 export interface WorkflowStorageAdapter {
   load(workflowId: string): Promise<WorkflowState | null>;
@@ -13,7 +13,7 @@ export class LocalWorkflowStorageAdapter implements WorkflowStorageAdapter {
     const value = window.localStorage.getItem(`${this.keyPrefix}${workflowId}`);
     if (!value) return null;
     try {
-      return JSON.parse(value) as WorkflowState;
+      return normalizeWorkflow(JSON.parse(value) as WorkflowState);
     } catch {
       return null;
     }
@@ -50,7 +50,7 @@ export class SupabaseWorkflowStorageAdapter implements WorkflowStorageAdapter {
   async load(workflowId: string): Promise<WorkflowState | null> {
     const { data, error } = await this.client.from("workflows").select("id,name,graph,updated_at").eq("id", workflowId).maybeSingle();
     if (error) throw error;
-    return data?.graph ?? null;
+    return data?.graph ? normalizeWorkflow(data.graph) : null;
   }
 
   async save(workflow: WorkflowState): Promise<void> {

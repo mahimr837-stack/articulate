@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDocumentTunnel, createInitialWorkflow, createNode, createWorkflowEdge, DocumentFile, getDerivedBypassEdges, getIncomingWorkflowEdges, getTunneledDocuments, searchNodeTypes, workflowNodeTypes } from "./types";
+import { createDocumentTunnel, createInitialWorkflow, createNode, createWorkflowEdge, DocumentFile, getDerivedBypassEdges, getIncomingWorkflowEdges, getTunneledDocuments, normalizeWorkflow, searchNodeTypes, workflowNodeTypes } from "./types";
 import { workflowReducer } from "./workflowReducer";
 
 describe("workflowReducer", () => {
@@ -19,6 +19,12 @@ describe("workflowReducer", () => {
 
     expect(result.nodes.find(node => node.id === locked.id)?.position).toEqual(locked.position);
     expect(result.nodes.find(node => node.id === free.id)?.position).toEqual({ x: 200, y: 200 });
+  });
+
+  it("does not create a workflow change when a move does not change a node position", () => {
+    const state = createInitialWorkflow();
+    const node = state.nodes[0]!;
+    expect(workflowReducer(state, { type: "move-nodes", positions: { [node.id]: node.position } })).toBe(state);
   });
 
   it("deletes attached ropes when a node is removed", () => {
@@ -120,6 +126,40 @@ describe("node bypass and disable states", () => {
     expect(disabled.nodes.find(node => node.id === agent.id)).toMatchObject({ bypassed: false, disabled: true });
     expect(restored.nodes.find(node => node.id === agent.id)).toMatchObject({ bypassed: false, disabled: false });
   });
+
+  it("routes around a consecutive bypass chain without creating bypass endpoints that remain bypassed", () => {
+    const source = createNode("input", { x: 0, y: 0 }, 1);
+    const first = createNode("format", { x: 200, y: 0 }, 2, { bypassed: true });
+    const second = createNode("format", { x: 400, y: 0 }, 3, { bypassed: true });
+    const target = createNode("output", { x: 600, y: 0 }, 4);
+    const workflow = normalizeWorkflow({
+      id: "chain", name: "Chain", nodes: [source, first, second, target], groups: [], selection: { nodeIds: [], edgeIds: [] }, updatedAt: 1,
+      edges: [
+        createWorkflowEdge({ id: "a", source: source.id, target: first.id, sourcePort: "out", targetPort: "in" }),
+        createWorkflowEdge({ id: "b", source: first.id, target: second.id, sourcePort: "out", targetPort: "in" }),
+        createWorkflowEdge({ id: "c", source: second.id, target: target.id, sourcePort: "out", targetPort: "in" }),
+      ],
+    });
+
+    expect(getDerivedBypassEdges(workflow)).toEqual(expect.arrayContaining([expect.objectContaining({ source: source.id, target: target.id })]));
+  });
+
+  it("normalizes legacy snapshots with missing groups, invalid edges, duplicate indexes, and stale selection", () => {
+    const state = createInitialWorkflow();
+    const legacy = {
+      ...state,
+      groups: undefined,
+      selection: { nodeIds: [state.nodes[0]!.id, "missing"], edgeIds: ["missing"] },
+      nodes: [{ ...state.nodes[0]!, index: 1 }, { ...state.nodes[1]!, index: 1 }],
+      edges: [{ ...state.edges[0]!, source: "missing" }],
+    } as unknown as typeof state;
+    const normalized = normalizeWorkflow(legacy);
+
+    expect(normalized.groups).toEqual([]);
+    expect(normalized.edges).toEqual([]);
+    expect(normalized.nodes.map(node => node.index)).toEqual([1, 2]);
+    expect(normalized.selection.nodeIds).toEqual([state.nodes[0]!.id]);
+  });
 });
 
 describe("extended node defaults", () => {
@@ -178,5 +218,14 @@ describe("advanced canvas groups", () => {
     expect(ungripped.groups).toHaveLength(0);
     expect(executed.edges).toHaveLength(state.edges.length + 2);
     expect(executed.edges.filter(edge => edge.metadata?.selectedExecution)).toHaveLength(2);
+  });
+
+  it("does not duplicate selected-execution ropes when the same selection is executed again", () => {
+    const state = createInitialWorkflow();
+    const selected = state.nodes.slice(0, 2).map(node => node.id);
+    const once = workflowReducer({ ...state, selection: { nodeIds: selected, edgeIds: [] } }, { type: "execute-selected", executionId: "run-1" });
+    const twice = workflowReducer(once, { type: "execute-selected", executionId: "run-2" });
+
+    expect(twice.edges).toHaveLength(once.edges.length);
   });
 });

@@ -1,4 +1,4 @@
-import { ExecutionState } from "./executionState";
+import { ExecutionState, normalizeExecutionState } from "./executionState";
 
 export class LocalExecutionStorageAdapter {
   constructor(private readonly key = "articulate:execution-history") {}
@@ -8,7 +8,7 @@ export class LocalExecutionStorageAdapter {
     const value = window.localStorage.getItem(this.key);
     if (!value) return {};
     try {
-      return JSON.parse(value) as ExecutionState;
+      return normalizeExecutionState(JSON.parse(value) as ExecutionState);
     } catch {
       return {};
     }

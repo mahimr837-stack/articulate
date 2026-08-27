@@ -235,9 +235,11 @@ export class WorkflowExecutionService {
     return serialize(record);
   }
 
-  resume(runId: string): Promise<AgentRunResult> {
+  resume(runId: string, fallbackRequest?: AgentRunRequest): Promise<AgentRunResult> {
     const record = this.runs.get(runId);
-    if (!record) return Promise.resolve({ runId, status: "failed", error: "Execution not found." });
+    if (!record) return fallbackRequest?.runId === runId
+      ? this.run({ ...fallbackRequest, retry: false })
+      : Promise.resolve({ runId, status: "failed", error: "Execution not found." });
     if (record.status !== "paused") return Promise.resolve(serialize(record));
     return this.run({ ...record.request, retry: false });
   }
