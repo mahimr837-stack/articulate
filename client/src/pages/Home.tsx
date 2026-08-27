@@ -19,6 +19,8 @@ import { workflowReducer } from "../features/workflow/workflowReducer";
 import { commitWorkflow, createStarterWorkflows, createWorkflowExport, createWorkflowHistory, createWorkflowTemplate, duplicateWorkflow, LocalTemplateStorageAdapter, parseWorkflowExport, publishWorkflowTemplate, redoWorkflow, undoWorkflow, WorkflowHistory, WorkflowTemplate } from "../features/workflow/workflowControls";
 import { WorkflowLibraryDialog } from "../features/workflow/WorkflowLibraryDialog";
 import { isArticulateThinking } from "../features/brand/thinkingState";
+import { getEditorKeyboardCommand } from "../features/workflow/editorKeyboard";
+import { dismissEditorOverlays } from "../features/workflow/editorOverlays";
 
 const storage = new LocalWorkflowStorageAdapter();
 const executionStorage = new LocalExecutionStorageAdapter();
@@ -74,6 +76,13 @@ export default function Home() {
   const [focusRequest, setFocusRequest] = useState<{ nodeId: string; key: number }>();
   const [workflowNotice, setWorkflowNotice] = useState<string>();
   const importRef = useRef<HTMLInputElement>(null);
+  const onDismissOverlays = useCallback(() => {
+    const dismissed = dismissEditorOverlays();
+    setRawNodeId(dismissed.rawNodeId);
+    setTunnelSourceNodeId(dismissed.tunnelSourceNodeId);
+    setLibraryMode(dismissed.libraryMode);
+    setWorkflowNotice(dismissed.workflowNotice);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.appearance = appearance;
@@ -150,24 +159,43 @@ export default function Home() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
-      const shortcut = event.metaKey || event.ctrlKey;
-      if (shortcut && event.key.toLowerCase() === "c") {
+      const command = getEditorKeyboardCommand({
+        key: event.key,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        editingText: Boolean(target?.matches("input, textarea, select, [contenteditable='true']")),
+        selectedNodeCount: workflow.selection.nodeIds.length,
+        selectedEdgeCount: workflow.selection.edgeIds.length,
+      });
+      if (command === "undo" || command === "redo") {
+        event.preventDefault();
+        setWorkflowHistory(history => command === "redo" ? redoWorkflow(history) : undoWorkflow(history));
+        return;
+      }
+      if (command === "copy") {
         event.preventDefault();
         copySelection();
       }
-      if (shortcut && event.key.toLowerCase() === "v") {
+      if (command === "paste") {
         event.preventDefault();
         pasteSelection();
       }
-      if ((event.key === "Backspace" || event.key === "Delete") && workflow.selection.nodeIds.length) {
+      if (command === "delete-nodes") {
         event.preventDefault();
         dispatch({ type: "delete-nodes", nodeIds: workflow.selection.nodeIds });
+      }
+      if (command === "delete-edges") {
+        event.preventDefault();
+        workflow.selection.edgeIds.forEach(edgeId => dispatch({ type: "delete-edge", edgeId }));
+      }
+      if (command === "dismiss") {
+        onDismissOverlays();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [copySelection, pasteSelection, workflow.selection.nodeIds]);
+  }, [copySelection, onDismissOverlays, pasteSelection, workflow.selection.nodeIds, workflow.selection.edgeIds]);
 
   const onNodeAction = (nodeId: string, action: "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw" | "tunnel") => {
     const node = workflow.nodes.find(candidate => candidate.id === nodeId);
