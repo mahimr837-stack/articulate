@@ -25,6 +25,10 @@ export type WorkflowNode = {
   title: string;
   position: GraphPosition;
   locked: boolean;
+  /** Bypassed nodes remain in the graph while effective workflow routing flows around them. */
+  bypassed: boolean;
+  /** Disabled nodes remain in the graph but block execution when execution is introduced. */
+  disabled: boolean;
   config: NodeConfiguration;
 };
 
@@ -42,6 +46,8 @@ export type WorkflowEdge = {
     condition?: string;
     label?: string;
     expiresAt?: number;
+    viaNodeId?: string;
+    derived?: boolean;
   };
 };
 
@@ -127,15 +133,73 @@ export function isWorkflowEdgeEnabled(edge: Pick<WorkflowEdge, "enabled"> | { en
   return edge.enabled !== false;
 }
 
+export function isWorkflowNodeBypassed(node: Pick<WorkflowNode, "bypassed"> | { bypassed?: boolean }) {
+  return node.bypassed === true;
+}
+
+export function isWorkflowNodeDisabled(node: Pick<WorkflowNode, "disabled"> | { disabled?: boolean }) {
+  return node.disabled === true;
+}
+
+export function getDerivedBypassEdges(workflow: WorkflowState): WorkflowEdge[] {
+  const routableEdges = workflow.edges.filter(isWorkflowEdgeEnabled);
+  const bypassedNodeIds = new Set(
+    workflow.nodes.filter(isWorkflowNodeBypassed).map(node => node.id),
+  );
+  const originalPairs = new Set(routableEdges.map(edge => `${edge.source}:${edge.target}`));
+  const derivedPairs = new Set<string>();
+
+  return workflow.nodes
+    .filter(isWorkflowNodeBypassed)
+    .flatMap(node => {
+      const incoming = routableEdges.filter(edge => edge.target === node.id);
+      const outgoing = routableEdges.filter(edge => edge.source === node.id);
+      return incoming.flatMap(sourceEdge =>
+        outgoing.flatMap(targetEdge => {
+          const pair = `${sourceEdge.source}:${targetEdge.target}`;
+          if (
+            sourceEdge.source === targetEdge.target ||
+            bypassedNodeIds.has(sourceEdge.source) ||
+            bypassedNodeIds.has(targetEdge.target) ||
+            originalPairs.has(pair) ||
+            derivedPairs.has(pair)
+          ) {
+            return [];
+          }
+          derivedPairs.add(pair);
+          return [createWorkflowEdge({
+            id: `bypass:${node.id}:${sourceEdge.id}:${targetEdge.id}`,
+            source: sourceEdge.source,
+            target: targetEdge.target,
+            sourcePort: "out",
+            targetPort: "in",
+            mode: "temporary",
+            metadata: { label: "Bypass", viaNodeId: node.id, derived: true },
+          })];
+        }),
+      );
+    });
+}
+
+export function getEffectiveWorkflowEdges(workflow: WorkflowState) {
+  const bypassedNodeIds = new Set(
+    workflow.nodes.filter(isWorkflowNodeBypassed).map(node => node.id),
+  );
+  const directEdges = workflow.edges.filter(
+    edge => isWorkflowEdgeEnabled(edge) && !bypassedNodeIds.has(edge.source) && !bypassedNodeIds.has(edge.target),
+  );
+  return [...directEdges, ...getDerivedBypassEdges(workflow)];
+}
+
 export function getIncomingWorkflowEdges(workflow: WorkflowState, nodeId: string) {
-  return workflow.edges.filter(edge => edge.target === nodeId && isWorkflowEdgeEnabled(edge));
+  return getEffectiveWorkflowEdges(workflow).filter(edge => edge.target === nodeId);
 }
 
 export function createNode(
   type: NodeType,
   position: GraphPosition,
   index: number,
-  overrides: Partial<Pick<WorkflowNode, "title" | "locked" | "config">> = {},
+  overrides: Partial<Pick<WorkflowNode, "title" | "locked" | "bypassed" | "disabled" | "config">> = {},
 ): WorkflowNode {
   const defaultConfig: NodeConfiguration =
     type === "input"
@@ -151,6 +215,8 @@ export function createNode(
     title: overrides.title ?? nodeCatalog[type].label,
     position,
     locked: overrides.locked ?? false,
+    bypassed: overrides.bypassed ?? false,
+    disabled: overrides.disabled ?? false,
     config: { ...defaultConfig, ...overrides.config },
   };
 }

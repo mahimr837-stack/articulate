@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createInitialWorkflow, createNode, getIncomingWorkflowEdges, searchNodeTypes } from "./types";
+import { createInitialWorkflow, createNode, getDerivedBypassEdges, getIncomingWorkflowEdges, searchNodeTypes } from "./types";
 import { workflowReducer } from "./workflowReducer";
 
 describe("workflowReducer", () => {
@@ -79,5 +79,33 @@ describe("workflow connections", () => {
 
     expect(result.edges[0]?.enabled).toBe(true);
     expect(result.edges[0]?.mode).toBe("standard");
+  });
+});
+
+describe("node bypass and disable states", () => {
+  it("derives direct effective routes around a bypassed node without removing its original edges", () => {
+    const state = createInitialWorkflow();
+    const agent = state.nodes.find(node => node.type === "ai-agent")!;
+    const output = state.nodes.find(node => node.type === "output")!;
+    const result = workflowReducer(state, { type: "toggle-bypass", nodeId: agent.id });
+    const bypassEdges = getDerivedBypassEdges(result);
+
+    expect(result.nodes.find(node => node.id === agent.id)?.bypassed).toBe(true);
+    expect(result.edges).toHaveLength(3);
+    expect(bypassEdges).toHaveLength(2);
+    expect(getIncomingWorkflowEdges(result, output.id)).toHaveLength(2);
+    expect(getIncomingWorkflowEdges(result, output.id).every(edge => edge.source !== agent.id)).toBe(true);
+  });
+
+  it("keeps bypass and disable as distinct reversible states", () => {
+    const state = createInitialWorkflow();
+    const agent = state.nodes.find(node => node.type === "ai-agent")!;
+    const bypassed = workflowReducer(state, { type: "toggle-bypass", nodeId: agent.id });
+    const disabled = workflowReducer(bypassed, { type: "toggle-disable", nodeId: agent.id });
+    const restored = workflowReducer(disabled, { type: "toggle-disable", nodeId: agent.id });
+
+    expect(bypassed.nodes.find(node => node.id === agent.id)).toMatchObject({ bypassed: true, disabled: false });
+    expect(disabled.nodes.find(node => node.id === agent.id)).toMatchObject({ bypassed: false, disabled: true });
+    expect(restored.nodes.find(node => node.id === agent.id)).toMatchObject({ bypassed: false, disabled: false });
   });
 });

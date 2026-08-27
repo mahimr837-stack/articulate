@@ -92,7 +92,7 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [copySelection, pasteSelection, workflow.selection.nodeIds]);
 
-  const onNodeAction = (nodeId: string, action: "delete" | "duplicate" | "configure" | "toggle-lock") => {
+  const onNodeAction = (nodeId: string, action: "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable") => {
     const node = workflow.nodes.find(candidate => candidate.id === nodeId);
     if (!node) return;
     if (action === "delete") dispatch({ type: "delete-nodes", nodeIds: [nodeId] });
@@ -102,6 +102,8 @@ export default function Home() {
       setRightOpen(true);
     }
     if (action === "toggle-lock") dispatch({ type: "toggle-lock", nodeId });
+    if (action === "toggle-bypass") dispatch({ type: "toggle-bypass", nodeId });
+    if (action === "toggle-disable") dispatch({ type: "toggle-disable", nodeId });
   };
 
   const onConfigChange = (nodeId: string, config: Partial<NodeConfiguration>) => {

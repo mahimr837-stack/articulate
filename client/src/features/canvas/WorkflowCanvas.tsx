@@ -1,9 +1,9 @@
 import { Minus, MousePointer2, Plus, Power, Scan, Trash2 } from "lucide-react";
 import { PointerEvent, WheelEvent, useMemo, useRef, useState } from "react";
 import { WorkflowNode } from "../nodes/WorkflowNode";
-import { createWorkflowEdge, GraphPosition, isWorkflowEdgeEnabled, NodeConfiguration, WorkflowEdge, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
+import { createWorkflowEdge, getDerivedBypassEdges, GraphPosition, isWorkflowEdgeEnabled, isWorkflowNodeBypassed, NodeConfiguration, WorkflowEdge, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
 
-type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock";
+type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable";
 
 type CanvasProps = {
   nodes: WorkflowNodeData[];
@@ -77,6 +77,14 @@ export function WorkflowCanvas({
   const stageRef = useRef<HTMLDivElement>(null);
 
   const byId = useMemo(() => new Map(nodes.map(node => [node.id, node])), [nodes]);
+  const bypassedNodeIds = useMemo(
+    () => new Set(nodes.filter(isWorkflowNodeBypassed).map(node => node.id)),
+    [nodes],
+  );
+  const derivedBypassEdges = useMemo(
+    () => getDerivedBypassEdges({ id: "canvas", name: "", nodes, edges, selection, updatedAt: 0 }),
+    [nodes, edges, selection],
+  );
   const getStagePoint = (event: { clientX: number; clientY: number }) => {
     const rect = stageRef.current?.getBoundingClientRect();
     return rect ? { x: event.clientX - rect.left, y: event.clientY - rect.top } : { x: 0, y: 0 };
@@ -216,11 +224,17 @@ export function WorkflowCanvas({
             return (
               <path
                 key={edge.id}
-                className={`workflow-rope ${selection.edgeIds.includes(edge.id) ? "is-selected" : ""} ${enabled ? "" : "is-disabled"}`}
+                className={`workflow-rope ${selection.edgeIds.includes(edge.id) ? "is-selected" : ""} ${enabled ? "" : "is-disabled"} ${bypassedNodeIds.has(edge.source) || bypassedNodeIds.has(edge.target) ? "is-bypassed" : ""}`}
                 d={curve(nodeCenter(source, "out"), nodeCenter(target, "in"))}
                 onPointerDown={event => onEdgePointerDown(event, edge.id)}
               />
             );
+          })}
+          {derivedBypassEdges.map(edge => {
+            const source = byId.get(edge.source);
+            const target = byId.get(edge.target);
+            if (!source || !target) return null;
+            return <path key={edge.id} className="workflow-rope is-bypass-route" d={curve(nodeCenter(source, "out"), nodeCenter(target, "in"))} />;
           })}
           {draggingRope?.from && <path className="workflow-rope is-drawing" d={curve(nodeCenter(draggingRope.from, "out"), draggingRope.to)} />}
         </svg>

@@ -2,6 +2,7 @@ import {
   AlignJustify,
   Bot,
   Braces,
+  CircleOff,
   Copy,
   Database,
   FileText,
@@ -10,8 +11,10 @@ import {
   Lock,
   MoreHorizontal,
   PanelTop,
+  Power,
   Settings2,
   Sparkles,
+  SkipForward,
   Trash2,
   Unlock,
   Upload,
@@ -19,7 +22,7 @@ import {
 import { PointerEvent, ReactNode, useState } from "react";
 import { getNodeDimensions, nodeCatalog, NodeConfiguration, WorkflowNode as WorkflowNodeData } from "../workflow/types";
 
-type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock";
+type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable";
 
 type WorkflowNodeProps = {
   node: WorkflowNodeData;
@@ -60,6 +63,8 @@ function NodeMenu({ node, onAction }: Pick<WorkflowNodeProps, "node" | "onAction
         <div className="node-menu" role="menu">
           <button onClick={() => perform("configure")}>Configure</button>
           <button onClick={() => perform("duplicate")}>Duplicate</button>
+          <button onClick={() => perform("toggle-bypass")}>{node.bypassed ? "Restore" : "Bypass"}</button>
+          <button onClick={() => perform("toggle-disable")}>{node.disabled ? "Enable" : "Disable"}</button>
           <button onClick={() => perform("toggle-lock")}>{node.locked ? "Unlock" : "Lock"}</button>
           <button className="danger" onClick={() => perform("delete")}>Delete</button>
         </div>
@@ -160,6 +165,9 @@ export function WorkflowNode({
         </div>
         <NodeMenu node={node} onAction={onAction} />
       </div>
+
+      {node.bypassed && <div className="node-state-indicator state-bypassed"><SkipForward size={11} /> Bypassed</div>}
+      {node.disabled && <div className="node-state-indicator state-disabled"><CircleOff size={11} /> Disabled</div>}
 
       {node.type === "input" ? (
         <div className="prompt-field" onPointerDown={event => event.stopPropagation()}>

@@ -7,6 +7,8 @@ export type WorkflowAction =
   | { type: "move-nodes"; positions: Record<string, { x: number; y: number }> }
   | { type: "update-node"; nodeId: string; patch: Partial<Pick<WorkflowNode, "title" | "config">> }
   | { type: "toggle-lock"; nodeId: string }
+  | { type: "toggle-bypass"; nodeId: string }
+  | { type: "toggle-disable"; nodeId: string }
   | { type: "delete-nodes"; nodeIds: string[] }
   | { type: "add-edge"; edge: WorkflowEdge }
   | { type: "toggle-edge"; edgeId: string }
@@ -23,6 +25,11 @@ export function workflowReducer(state: WorkflowState, action: WorkflowAction): W
     case "replace":
       return {
         ...action.workflow,
+        nodes: action.workflow.nodes.map(node => ({
+          ...node,
+          bypassed: node.bypassed ?? false,
+          disabled: node.disabled ?? false,
+        })),
         edges: action.workflow.edges.map(edge => createWorkflowEdge(edge)),
       };
     case "set-selection":
@@ -53,6 +60,22 @@ export function workflowReducer(state: WorkflowState, action: WorkflowAction): W
       return stamp(state, {
         nodes: state.nodes.map(node =>
           node.id === action.nodeId ? { ...node, locked: !node.locked } : node,
+        ),
+      });
+    case "toggle-bypass":
+      return stamp(state, {
+        nodes: state.nodes.map(node =>
+          node.id === action.nodeId
+            ? { ...node, bypassed: !node.bypassed, disabled: false }
+            : node,
+        ),
+      });
+    case "toggle-disable":
+      return stamp(state, {
+        nodes: state.nodes.map(node =>
+          node.id === action.nodeId
+            ? { ...node, disabled: !node.disabled, bypassed: false }
+            : node,
         ),
       });
     case "delete-nodes": {

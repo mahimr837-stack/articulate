@@ -24,3 +24,7 @@
 - [x] Make ropes directly selectable and surface a compact midpoint control for edge actions.
 - [x] Implement edge disable/re-enable and deletion without changing the existing node connection behavior.
 - [x] Add connection-state tests, visually validate rope interactions, and save the connection-system checkpoint.
+- [x] Extend node state with distinct bypass and disable execution semantics.
+- [x] Derive direct bypass routes between enabled upstream and downstream workflow connections without removing original graph structure.
+- [x] Add Bypass and Disable to the existing node menu with unobtrusive bypassed and disabled node states.
+- [x] Test node state transitions and derived routes, visually validate the result, and save the node-action checkpoint.
