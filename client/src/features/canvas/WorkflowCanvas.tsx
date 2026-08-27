@@ -4,13 +4,14 @@ import { useEffect } from "react";
 import { WorkflowNode } from "../nodes/WorkflowNode";
 import { ExecutionState } from "../execution/executionState";
 import { SafeAgentStatus } from "@shared/execution";
-import { createWorkflowEdge, getDerivedBypassEdges, getNodeDimensions, GraphPosition, isWorkflowEdgeEnabled, isWorkflowNodeBypassed, NodeConfiguration, WorkflowEdge, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
+import { createWorkflowEdge, getDerivedBypassEdges, getNodeDimensions, getWorkflowGroupForNode, GraphPosition, isWorkflowEdgeEnabled, isWorkflowNodeBypassed, NodeConfiguration, WorkflowEdge, WorkflowGroup, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
 
 type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw" | "tunnel";
 
 type CanvasProps = {
   nodes: WorkflowNodeData[];
   edges: WorkflowEdge[];
+  groups: WorkflowGroup[];
   selection: WorkflowSelection;
   onSelectionChange: (selection: WorkflowSelection) => void;
   onMoveNodes: (positions: Record<string, GraphPosition>) => void;
@@ -71,6 +72,7 @@ function nodeCenter(node: WorkflowNodeData, direction: "in" | "out"): GraphPosit
 export function WorkflowCanvas({
   nodes,
   edges,
+  groups,
   selection,
   onSelectionChange,
   onMoveNodes,
@@ -109,8 +111,8 @@ export function WorkflowCanvas({
     [nodes],
   );
   const derivedBypassEdges = useMemo(
-    () => getDerivedBypassEdges({ id: "canvas", name: "", nodes, edges, selection, updatedAt: 0 }),
-    [nodes, edges, selection],
+    () => getDerivedBypassEdges({ id: "canvas", name: "", nodes, edges, groups, selection, updatedAt: 0 }),
+    [nodes, edges, groups, selection],
   );
   const getStagePoint = (event: { clientX: number; clientY: number }) => {
     const rect = stageRef.current?.getBoundingClientRect();
@@ -153,11 +155,14 @@ export function WorkflowCanvas({
     const node = byId.get(nodeId);
     if (!node) return;
     const wasSelected = selection.nodeIds.includes(nodeId);
-    const nodeIds = event.shiftKey
+    const group = getWorkflowGroupForNode({ id: "canvas", name: "", nodes, edges, groups, selection, updatedAt: 0 }, nodeId);
+    const nodeIds = group && !event.shiftKey
+      ? group.nodeIds
+      : event.shiftKey
       ? wasSelected ? selection.nodeIds.filter(id => id !== nodeId) : [...selection.nodeIds, nodeId]
       : wasSelected ? selection.nodeIds : [nodeId];
     onSelectionChange({ nodeIds, edgeIds: [] });
-    if (node.locked) return;
+    if (node.locked || group?.locked) return;
     const positions = Object.fromEntries(
       nodes.filter(candidate => nodeIds.includes(candidate.id)).map(candidate => [candidate.id, { ...candidate.position }]),
     );

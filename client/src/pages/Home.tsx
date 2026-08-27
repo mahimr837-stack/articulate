@@ -63,7 +63,7 @@ export default function Home() {
   useEffect(() => {
     let mounted = true;
     storage.load("local-articulate-workflow").then(saved => {
-      if (mounted && saved) setWorkflowHistory(createWorkflowHistory(saved));
+      if (mounted && saved) setWorkflowHistory(createWorkflowHistory(workflowReducer(createInitialWorkflow(), { type: "replace", workflow: saved })));
     });
     return () => { mounted = false; };
   }, []);
@@ -94,6 +94,7 @@ export default function Home() {
     [workflow.nodes, workflow.selection.nodeIds],
   );
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined;
+  const activeGroup = (workflow.groups ?? []).find(group => group.nodeIds.length === workflow.selection.nodeIds.length && group.nodeIds.every(nodeId => workflow.selection.nodeIds.includes(nodeId)));
 
   const addNode = useCallback((type: NodeType) => {
     const count = workflow.nodes.length;
@@ -400,13 +401,15 @@ export default function Home() {
     event.target.value = "";
     if (!file) return;
     file.text().then(text => {
-      setWorkflowHistory(createWorkflowHistory(parseWorkflowExport(text)));
+      const imported = parseWorkflowExport(text);
+      setWorkflowHistory(createWorkflowHistory(workflowReducer(createInitialWorkflow(), { type: "replace", workflow: imported })));
       setWorkflowNotice("Workflow imported.");
     }).catch(error => setWorkflowNotice(error instanceof Error ? error.message : "Unable to import workflow."));
   };
 
   const onChooseTemplate = (template: WorkflowTemplate) => {
-    setWorkflowHistory(createWorkflowHistory(duplicateWorkflow(template.workflow)));
+    const normalized = workflowReducer(createInitialWorkflow(), { type: "replace", workflow: template.workflow });
+    setWorkflowHistory(createWorkflowHistory(duplicateWorkflow(normalized)));
     setLibraryMode(undefined);
     setWorkflowNotice(`Loaded ${template.name}.`);
   };
@@ -416,6 +419,7 @@ export default function Home() {
       <WorkflowCanvas
         nodes={workflow.nodes}
         edges={workflow.edges}
+        groups={workflow.groups ?? []}
         selection={workflow.selection}
         onSelectionChange={selection => dispatch({ type: "set-selection", selection })}
         onMoveNodes={positions => dispatch({ type: "move-nodes", positions })}
@@ -436,7 +440,7 @@ export default function Home() {
       />
       <LeftPanel open={leftOpen} onToggle={() => setLeftOpen(open => !open)} onAddNode={addNode} onCopy={copySelection} canCopy={selectedNodes.length > 0} />
       <RightPanel open={rightOpen} node={selectedNode} execution={execution} nodes={workflow.nodes} onToggle={() => setRightOpen(open => !open)} onConfigChange={onConfigChange} />
-      <TopPanel open={topOpen} appearance={appearance} workflowName={workflow.name} nodes={workflow.nodes} canUndo={workflowHistory.past.length > 0} canRedo={workflowHistory.future.length > 0} onToggle={() => setTopOpen(open => !open)} onAppearanceChange={setAppearance} onUndo={() => setWorkflowHistory(undoWorkflow)} onRedo={() => setWorkflowHistory(redoWorkflow)} onFocusNode={nodeId => { dispatch({ type: "set-selection", selection: { nodeIds: [nodeId], edgeIds: [] } }); setFocusRequest({ nodeId, key: Date.now() }); }} onWorkflowAction={onWorkflowAction} />
+      <TopPanel open={topOpen} appearance={appearance} workflowName={workflow.name} nodes={workflow.nodes} canUndo={workflowHistory.past.length > 0} canRedo={workflowHistory.future.length > 0} selectedCount={workflow.selection.nodeIds.length} activeGroupLocked={activeGroup?.locked} onToggle={() => setTopOpen(open => !open)} onAppearanceChange={setAppearance} onUndo={() => setWorkflowHistory(undoWorkflow)} onRedo={() => setWorkflowHistory(redoWorkflow)} onFocusNode={nodeId => { dispatch({ type: "set-selection", selection: { nodeIds: [nodeId], edgeIds: [] } }); setFocusRequest({ nodeId, key: Date.now() }); }} onWorkflowAction={onWorkflowAction} onGrip={() => dispatch({ type: "grip-selection", groupId: `group-${Date.now()}` })} onUngrip={() => dispatch({ type: "ungrip-selected" })} onToggleGroupLock={() => { if (activeGroup) dispatch({ type: "toggle-group-lock", groupId: activeGroup.id }); }} onExecuteSelected={() => dispatch({ type: "execute-selected", executionId: `selected-${Date.now()}` })} />
       <div className="shortcut-strip"><span><kbd>SPACE + DRAG</kbd> PAN</span><span><kbd>SHIFT + DRAG</kbd> SELECT</span><span><kbd>⌘/CTRL C/V</kbd> COPY / PASTE</span></div>
       {rawNode && <RawDataView workflow={workflow} node={rawNode} onClose={() => setRawNodeId(undefined)} />}
       {tunnelSourceNode && <TunnelTargetPicker source={tunnelSourceNode} nodes={workflow.nodes} onConfirm={onTunnelDocuments} onClose={() => setTunnelSourceNodeId(undefined)} />}

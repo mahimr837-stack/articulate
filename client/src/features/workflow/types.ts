@@ -74,6 +74,8 @@ export type WorkflowEdge = {
     derived?: boolean;
     documentId?: string;
     tunnel?: boolean;
+    selectedExecution?: boolean;
+    groupId?: string;
   };
 };
 
@@ -82,11 +84,19 @@ export type WorkflowSelection = {
   edgeIds: string[];
 };
 
+export type WorkflowGroup = {
+  id: string;
+  nodeIds: string[];
+  locked: boolean;
+  createdAt: number;
+};
+
 export type WorkflowState = {
   id: string;
   name: string;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+  groups: WorkflowGroup[];
   selection: WorkflowSelection;
   updatedAt: number;
 };
@@ -158,6 +168,29 @@ export function createWorkflowEdge(
     enabled: edge.enabled ?? true,
     mode: edge.mode ?? "standard",
   };
+}
+
+export function createNodeGroup(id: string, nodeIds: string[]): WorkflowGroup {
+  return { id, nodeIds: Array.from(new Set(nodeIds)), locked: false, createdAt: Date.now() };
+}
+
+export function getWorkflowGroupForNode(workflow: WorkflowState, nodeId: string) {
+  return workflow.groups.find(group => group.nodeIds.includes(nodeId));
+}
+
+export function createSelectedExecutionEdges(workflow: WorkflowState, nodeIds: string[], executionId: string) {
+  const selected = workflow.nodes
+    .filter(node => nodeIds.includes(node.id))
+    .sort((left, right) => left.position.x - right.position.x || left.position.y - right.position.y);
+  return selected.slice(0, -1).map((node, index) => createWorkflowEdge({
+    id: `selected-execution:${executionId}:${index}`,
+    source: node.id,
+    target: selected[index + 1]!.id,
+    sourcePort: "out",
+    targetPort: "in",
+    mode: "temporary",
+    metadata: { label: "Selected execution", selectedExecution: true, groupId: executionId },
+  }));
 }
 
 export function createDocumentTunnel(
@@ -309,6 +342,7 @@ export function createInitialWorkflow(): WorkflowState {
       createWorkflowEdge({ id: id(), source: context.id, target: agent.id, sourcePort: "out", targetPort: "in" }),
       createWorkflowEdge({ id: id(), source: agent.id, target: output.id, sourcePort: "out", targetPort: "in" }),
     ],
+    groups: [],
     selection: { nodeIds: [agent.id], edgeIds: [] },
     updatedAt: Date.now(),
   };

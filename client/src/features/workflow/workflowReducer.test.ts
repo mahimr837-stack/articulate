@@ -154,3 +154,29 @@ describe("document tunnels", () => {
     expect(workflow.edges.filter(edge => edge.metadata?.tunnel)).toHaveLength(2);
   });
 });
+
+describe("advanced canvas groups", () => {
+  it("keeps a gripped group intact and prevents group-locked nodes from moving", () => {
+    const state = createInitialWorkflow();
+    const selected = state.nodes.slice(0, 2).map(node => node.id);
+    const gripped = workflowReducer({ ...state, selection: { nodeIds: selected, edgeIds: [] } }, { type: "grip-selection", groupId: "group-1" });
+    const locked = workflowReducer(gripped, { type: "toggle-group-lock", groupId: "group-1" });
+    const moved = workflowReducer(locked, { type: "move-nodes", positions: { [selected[0]!]: { x: 800, y: 800 } } });
+
+    expect(gripped.groups[0]?.nodeIds).toEqual(selected);
+    expect(locked.groups[0]?.locked).toBe(true);
+    expect(moved.nodes.find(node => node.id === selected[0])?.position).toEqual(state.nodes[0]?.position);
+  });
+
+  it("ungroups selections and appends selected-execution ropes without removing the original graph", () => {
+    const state = createInitialWorkflow();
+    const selected = [state.nodes[0]!.id, state.nodes[2]!.id, state.nodes[3]!.id];
+    const gripped = workflowReducer({ ...state, selection: { nodeIds: selected, edgeIds: [] } }, { type: "grip-selection", groupId: "group-1" });
+    const ungripped = workflowReducer(gripped, { type: "ungrip-selected" });
+    const executed = workflowReducer({ ...ungripped, selection: { nodeIds: selected, edgeIds: [] } }, { type: "execute-selected", executionId: "run-1" });
+
+    expect(ungripped.groups).toHaveLength(0);
+    expect(executed.edges).toHaveLength(state.edges.length + 2);
+    expect(executed.edges.filter(edge => edge.metadata?.selectedExecution)).toHaveLength(2);
+  });
+});

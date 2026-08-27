@@ -53,3 +53,7 @@
 - [x] Add workflow duplication, saved templates, starter workflows, and JSON import-export controls.
 - [x] Add local-ready sharing and reusable-template publishing flows with clear persistence boundaries.
 - [x] Test workflow-level operations, visually validate the top-menu experience, and save the workflow-controls checkpoint.
+- [x] Define persisted group membership, group lock state, and additive selected-execution rope contracts.
+- [x] Implement grouped multi-node movement, Ungrip release, and group Lock/Unlock controls.
+- [x] Add Execute Selected to the top menu and append only new execution ropes between ordered selected nodes.
+- [x] Test group and selected-execution behavior, visually validate the canvas controls, and save the advanced canvas checkpoint.
