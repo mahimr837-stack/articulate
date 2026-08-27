@@ -2,6 +2,7 @@ import {
   AlignJustify,
   Bot,
   Braces,
+  Copy,
   Database,
   FileText,
   GitFork,
@@ -9,10 +10,13 @@ import {
   Lock,
   MoreHorizontal,
   PanelTop,
+  Settings2,
   Sparkles,
+  Trash2,
+  Unlock,
   Upload,
 } from "lucide-react";
-import { PointerEvent, useState } from "react";
+import { PointerEvent, ReactNode, useState } from "react";
 import { getNodeDimensions, nodeCatalog, NodeConfiguration, WorkflowNode as WorkflowNodeData } from "../workflow/types";
 
 type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock";
@@ -60,6 +64,32 @@ function NodeMenu({ node, onAction }: Pick<WorkflowNodeProps, "node" | "onAction
           <button className="danger" onClick={() => perform("delete")}>Delete</button>
         </div>
       )}
+    </div>
+  );
+}
+
+function NodeQuickActions({ node, onAction }: Pick<WorkflowNodeProps, "node" | "onAction">) {
+  const actions: { id: NodeAction; label: string; icon: ReactNode; destructive?: boolean }[] = [
+    { id: "configure", label: "Configure", icon: <Settings2 size={14} /> },
+    { id: "duplicate", label: "Duplicate", icon: <Copy size={14} /> },
+    { id: "toggle-lock", label: node.locked ? "Unlock" : "Lock", icon: node.locked ? <Unlock size={14} /> : <Lock size={14} /> },
+    { id: "delete", label: "Delete", icon: <Trash2 size={14} />, destructive: true },
+  ];
+
+  return (
+    <div className="node-quick-actions" onPointerDown={event => event.stopPropagation()} aria-label={`${node.title} quick actions`}>
+      {actions.map(action => (
+        <button
+          key={action.id}
+          type="button"
+          className={action.destructive ? "danger" : ""}
+          title={action.label}
+          aria-label={action.label}
+          onClick={() => onAction(node.id, action.id)}
+        >
+          {action.icon}
+        </button>
+      ))}
     </div>
   );
 }
@@ -156,6 +186,7 @@ export function WorkflowNode({
       )}
 
       {node.locked && <div className="node-lock-mark"><Lock size={12} /></div>}
+      {selected && <NodeQuickActions node={node} onAction={onAction} />}
     </div>
   );
 }

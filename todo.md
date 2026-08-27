@@ -16,3 +16,7 @@
 - [x] Replace the blueprint-style visual system with a restrained, neutral developer-tool visual system while preserving editor behavior.
 - [x] Simplify canvas grid, node chrome, panels, controls, typography, and theme surfaces without changing workflow interactions.
 - [x] Visually validate the neutral redesign on desktop and mobile, run regression checks, and save a redesign checkpoint.
+- [x] Add a searchable, extensible node discovery list to the left collapsible panel.
+- [x] Ensure node-library selections create new nodes through the existing workflow node factory and placement flow.
+- [x] Reveal minimal contextual controls on a first node click without disrupting drag interactions.
+- [x] Test node discovery, placement, and first-click controls, then save the feature checkpoint.

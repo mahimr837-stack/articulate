@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createInitialWorkflow, createNode } from "./types";
+import { createInitialWorkflow, createNode, searchNodeTypes } from "./types";
 import { workflowReducer } from "./workflowReducer";
 
 describe("workflowReducer", () => {
@@ -37,5 +37,13 @@ describe("workflowReducer", () => {
 
     expect(result.selection.nodeIds).toEqual([copy.id]);
     expect(result.nodes).toContainEqual(copy);
+  });
+});
+
+describe("searchNodeTypes", () => {
+  it("finds node types by their name or purpose", () => {
+    expect(searchNodeTypes("agent")).toEqual(["ai-agent"]);
+    expect(searchNodeTypes("state")).toEqual(["memory"]);
+    expect(searchNodeTypes("   ")).toHaveLength(8);
   });
 });

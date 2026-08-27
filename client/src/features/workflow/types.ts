@@ -169,3 +169,14 @@ export function getNodeDimensions(node: WorkflowNode) {
 }
 
 export const workflowNodeTypes = Object.keys(nodeCatalog) as NodeType[];
+
+export function searchNodeTypes(query: string): NodeType[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return workflowNodeTypes;
+
+  return workflowNodeTypes.filter(type => {
+    const node = nodeCatalog[type];
+    return [node.label, node.eyebrow, node.description]
+      .some(value => value.toLocaleLowerCase().includes(normalizedQuery));
+  });
+}
