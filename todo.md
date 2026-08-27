@@ -28,3 +28,8 @@
 - [x] Derive direct bypass routes between enabled upstream and downstream workflow connections without removing original graph structure.
 - [x] Add Bypass and Disable to the existing node menu with unobtrusive bypassed and disabled node states.
 - [x] Test node state transitions and derived routes, visually validate the result, and save the node-action checkpoint.
+- [x] Define shared workflow execution state and server-side run contracts with safe request validation.
+- [x] Add a real server procedure that invokes a selected AI Agent model and returns output or a normalized failure.
+- [x] Add Input-node Run, Pause, Resume, Retry, and execution state feedback driven by request lifecycle events.
+- [x] Create or update Output-node content from completed execution without altering graph structure.
+- [x] Test execution state transitions and server result handling, visually validate the flow, and save the execution checkpoint.

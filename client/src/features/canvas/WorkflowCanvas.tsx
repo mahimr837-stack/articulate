@@ -1,7 +1,8 @@
 import { Minus, MousePointer2, Plus, Power, Scan, Trash2 } from "lucide-react";
 import { PointerEvent, WheelEvent, useMemo, useRef, useState } from "react";
 import { WorkflowNode } from "../nodes/WorkflowNode";
-import { createWorkflowEdge, getDerivedBypassEdges, GraphPosition, isWorkflowEdgeEnabled, isWorkflowNodeBypassed, NodeConfiguration, WorkflowEdge, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
+import { ExecutionState } from "../execution/executionState";
+import { createWorkflowEdge, getDerivedBypassEdges, getNodeDimensions, GraphPosition, isWorkflowEdgeEnabled, isWorkflowNodeBypassed, NodeConfiguration, WorkflowEdge, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
 
 type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable";
 
@@ -16,6 +17,8 @@ type CanvasProps = {
   onDeleteEdge: (edgeId: string) => void;
   onNodeAction: (nodeId: string, action: NodeAction) => void;
   onConfigChange: (nodeId: string, config: Partial<NodeConfiguration>) => void;
+  execution: ExecutionState;
+  onExecutionAction: (nodeId: string, action: "run" | "pause" | "resume" | "retry") => void;
 };
 
 type Viewport = { x: number; y: number; zoom: number };
@@ -52,11 +55,8 @@ function curveMidpoint(from: GraphPosition, to: GraphPosition): GraphPosition {
 }
 
 function nodeCenter(node: WorkflowNodeData, direction: "in" | "out"): GraphPosition {
-  const height = node.type === "input"
-    ? 150 + Math.max(3, Math.min(9, Math.ceil(String(node.config.prompt ?? "").length / 37) + String(node.config.prompt ?? "").split("\n").length - 1)) * 18
-    : node.type === "ai-agent" ? 188 : 142;
-  const width = node.type === "input" ? 316 : node.type === "ai-agent" ? 302 : 272;
-  return { x: node.position.x + (direction === "out" ? width : 0), y: node.position.y + height / 2 };
+  const dimensions = getNodeDimensions(node);
+  return { x: node.position.x + (direction === "out" ? dimensions.width : 0), y: node.position.y + dimensions.height / 2 };
 }
 
 export function WorkflowCanvas({
@@ -70,6 +70,8 @@ export function WorkflowCanvas({
   onDeleteEdge,
   onNodeAction,
   onConfigChange,
+  execution,
+  onExecutionAction,
 }: CanvasProps) {
   const [viewport, setViewport] = useState<Viewport>(getDefaultViewport);
   const [interaction, setInteraction] = useState<Interaction>(null);
@@ -271,6 +273,8 @@ export function WorkflowCanvas({
             onPortPointerDown={onPortPointerDown}
             onAction={onNodeAction}
             onConfigChange={onConfigChange}
+            execution={execution[node.id]}
+            onExecutionAction={onExecutionAction}
           />
         ))}
       </div>

@@ -1,23 +1,31 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { trpc } from "@/lib/trpc";
+import { AgentRunResult } from "@shared/execution";
 import { WorkflowCanvas } from "../features/canvas/WorkflowCanvas";
+import { executionReducer, ExecutionState } from "../features/execution/executionState";
 import { LeftPanel } from "../features/panels/LeftPanel";
 import { Appearance, TopPanel } from "../features/panels/TopPanel";
 import { RightPanel } from "../features/panels/RightPanel";
 import { LocalWorkflowStorageAdapter } from "../features/workflow/storage";
-import { createInitialWorkflow, createNode, NodeConfiguration, NodeType, WorkflowNode } from "../features/workflow/types";
+import { createInitialWorkflow, createNode, createWorkflowEdge, NodeConfiguration, NodeType, WorkflowNode } from "../features/workflow/types";
 import { workflowReducer } from "../features/workflow/workflowReducer";
 
 const storage = new LocalWorkflowStorageAdapter();
 const nextNodeIndex = (nodes: WorkflowNode[]) => Math.max(0, ...nodes.map(node => node.index)) + 1;
+const createRunId = () => typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `run-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function Home() {
   const [workflow, dispatch] = useReducer(workflowReducer, undefined, () => createInitialWorkflow());
+  const [execution, dispatchExecution] = useReducer(executionReducer, {} as ExecutionState);
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
   const [topOpen, setTopOpen] = useState(true);
   const [appearance, setAppearance] = useState<Appearance>(() => (localStorage.getItem("articulate:appearance") as Appearance) || "system");
   const clipboard = useRef<WorkflowNode[]>([]);
   const pasteCount = useRef(0);
+  const runMutation = trpc.execution.run.useMutation();
+  const pauseMutation = trpc.execution.pause.useMutation();
+  const resumeMutation = trpc.execution.resume.useMutation();
 
   useEffect(() => {
     document.documentElement.dataset.appearance = appearance;
@@ -110,6 +118,130 @@ export default function Home() {
     dispatch({ type: "update-node", nodeId, patch: { config } });
   };
 
+  const findConnectedAgent = (inputNodeId: string) => {
+    const visited = new Set<string>();
+    const queue = [inputNodeId];
+    while (queue.length) {
+      const nodeId = queue.shift()!;
+      if (visited.has(nodeId)) continue;
+      visited.add(nodeId);
+      const nextEdges = workflow.edges.filter(edge => edge.enabled !== false && edge.source === nodeId);
+      for (const edge of nextEdges) {
+        const node = workflow.nodes.find(candidate => candidate.id === edge.target);
+        if (!node) continue;
+        if (node.type === "ai-agent" && !node.bypassed) return node;
+        queue.push(node.id);
+      }
+    }
+    return undefined;
+  };
+
+  const findConnectedOutput = (agentNodeId: string) => {
+    const visited = new Set<string>();
+    const queue = [agentNodeId];
+    while (queue.length) {
+      const nodeId = queue.shift()!;
+      if (visited.has(nodeId)) continue;
+      visited.add(nodeId);
+      const nextEdges = workflow.edges.filter(edge => edge.enabled !== false && edge.source === nodeId);
+      for (const edge of nextEdges) {
+        const node = workflow.nodes.find(candidate => candidate.id === edge.target);
+        if (!node) continue;
+        if (node.type === "output") return node;
+        queue.push(node.id);
+      }
+    }
+    return undefined;
+  };
+
+  const showExecutionOutput = (agentNodeId: string, output: string) => {
+    const existingOutput = findConnectedOutput(agentNodeId);
+    if (existingOutput) {
+      dispatch({ type: "update-node", nodeId: existingOutput.id, patch: { config: { summary: output } } });
+      return;
+    }
+    const agent = workflow.nodes.find(node => node.id === agentNodeId);
+    if (!agent) return;
+    const newOutput = createNode(
+      "output",
+      { x: agent.position.x + 410, y: agent.position.y },
+      nextNodeIndex(workflow.nodes),
+      { config: { summary: output } },
+    );
+    dispatch({ type: "add-nodes", nodes: [newOutput], select: false });
+    dispatch({
+      type: "add-edge",
+      edge: createWorkflowEdge({
+        id: `execution-output-${Date.now()}-${newOutput.id}`,
+        source: agentNodeId,
+        target: newOutput.id,
+        sourcePort: "out",
+        targetPort: "in",
+      }),
+    });
+  };
+
+  const settleExecution = (inputNodeId: string, agentNodeId: string, result: AgentRunResult) => {
+    dispatchExecution({
+      type: "settle",
+      inputNodeId,
+      result: { runId: result.runId, agentNodeId, status: result.status, error: result.error },
+    });
+    if (result.status === "completed" && result.output) showExecutionOutput(agentNodeId, result.output);
+  };
+
+  const onExecutionAction = async (inputNodeId: string, action: "run" | "pause" | "resume" | "retry") => {
+    const input = workflow.nodes.find(node => node.id === inputNodeId);
+    if (!input) return;
+    const active = execution[inputNodeId];
+
+    if (action === "pause") {
+      if (!active?.runId) return;
+      try {
+        settleExecution(inputNodeId, active.agentNodeId ?? "", await pauseMutation.mutateAsync({ runId: active.runId }));
+      } catch (error) {
+        dispatchExecution({ type: "fail", inputNodeId, error: error instanceof Error ? error.message : "Unable to pause the AI Agent." });
+      }
+      return;
+    }
+    if (action === "resume") {
+      if (!active?.runId || !active.agentNodeId) return;
+      dispatchExecution({ type: "start", inputNodeId, agentNodeId: active.agentNodeId, runId: active.runId, status: "running" });
+      try {
+        settleExecution(inputNodeId, active.agentNodeId, await resumeMutation.mutateAsync({ runId: active.runId }));
+      } catch (error) {
+        dispatchExecution({ type: "fail", inputNodeId, error: error instanceof Error ? error.message : "Unable to resume the AI Agent." });
+      }
+      return;
+    }
+
+    const agent = findConnectedAgent(inputNodeId);
+    if (!agent) {
+      dispatchExecution({ type: "fail", inputNodeId, error: "Connect this Input to an active AI Agent before running." });
+      return;
+    }
+    if (agent.disabled) {
+      dispatchExecution({ type: "fail", inputNodeId, error: "The connected AI Agent is disabled." });
+      return;
+    }
+    const runId = createRunId();
+    dispatchExecution({ type: "start", inputNodeId, agentNodeId: agent.id, runId, status: action === "retry" ? "retrying" : "running" });
+    try {
+      const result = await runMutation.mutateAsync({
+        runId,
+        inputNodeId,
+        agentNodeId: agent.id,
+        prompt: String(input.config.prompt ?? ""),
+        model: String(agent.config.model ?? "Manus 1.6"),
+        provider: String(agent.config.provider ?? "Manus"),
+        retry: action === "retry",
+      });
+      settleExecution(inputNodeId, agent.id, result);
+    } catch (error) {
+      dispatchExecution({ type: "fail", inputNodeId, error: error instanceof Error ? error.message : "Unable to start the AI Agent." });
+    }
+  };
+
   return (
     <div className="articulate-shell" data-appearance={appearance}>
       <WorkflowCanvas
@@ -123,6 +255,8 @@ export default function Home() {
         onDeleteEdge={edgeId => dispatch({ type: "delete-edge", edgeId })}
         onNodeAction={onNodeAction}
         onConfigChange={onConfigChange}
+        execution={execution}
+        onExecutionAction={onExecutionAction}
       />
       <LeftPanel open={leftOpen} onToggle={() => setLeftOpen(open => !open)} onAddNode={addNode} onCopy={copySelection} canCopy={selectedNodes.length > 0} />
       <RightPanel open={rightOpen} node={selectedNode} onToggle={() => setRightOpen(open => !open)} onConfigChange={onConfigChange} />

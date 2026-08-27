@@ -20,6 +20,7 @@ import {
   Upload,
 } from "lucide-react";
 import { PointerEvent, ReactNode, useState } from "react";
+import { NodeExecution, idleExecution } from "../execution/executionState";
 import { getNodeDimensions, nodeCatalog, NodeConfiguration, WorkflowNode as WorkflowNodeData } from "../workflow/types";
 
 type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable";
@@ -31,6 +32,8 @@ type WorkflowNodeProps = {
   onPortPointerDown: (event: PointerEvent<HTMLButtonElement>, nodeId: string) => void;
   onAction: (nodeId: string, action: NodeAction) => void;
   onConfigChange: (nodeId: string, config: Partial<NodeConfiguration>) => void;
+  execution?: NodeExecution;
+  onExecutionAction?: (nodeId: string, action: "run" | "pause" | "resume" | "retry") => void;
 };
 
 function NodeIcon({ type }: { type: WorkflowNodeData["type"] }) {
@@ -118,6 +121,8 @@ export function WorkflowNode({
   onPortPointerDown,
   onAction,
   onConfigChange,
+  execution = idleExecution,
+  onExecutionAction,
 }: WorkflowNodeProps) {
   const dimensions = getNodeDimensions(node);
   const hasInput = node.type !== "input";
@@ -191,6 +196,36 @@ export function WorkflowNode({
         </div>
       ) : (
         <GenericNodeContent node={node} />
+      )}
+
+      {node.type === "input" && onExecutionAction && (
+        <div className="input-execution" onPointerDown={event => event.stopPropagation()}>
+          {execution.status !== "idle" && <span className={`execution-state state-${execution.status}`}>{execution.status}</span>}
+          <button
+            type="button"
+            className={`input-run-control state-${execution.status}`}
+            disabled={execution.status === "retrying"}
+            onClick={() => {
+              const action = execution.status === "running" || execution.status === "retrying"
+                ? "pause"
+                : execution.status === "paused"
+                  ? "resume"
+                  : execution.status === "failed"
+                    ? "retry"
+                    : "run";
+              onExecutionAction(node.id, action);
+            }}
+          >
+            {execution.status === "running" || execution.status === "retrying"
+              ? "Pause"
+              : execution.status === "paused"
+                ? "Resume"
+                : execution.status === "failed"
+                  ? "Retry"
+                  : "Run"}
+          </button>
+          {execution.error && <p className="execution-error">{execution.error}</p>}
+        </div>
       )}
 
       {node.locked && <div className="node-lock-mark"><Lock size={12} /></div>}

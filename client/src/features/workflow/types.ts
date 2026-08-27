@@ -258,6 +258,11 @@ export function getNodeDimensions(node: WorkflowNode) {
   }
 
   if (node.type === "ai-agent") return { width: 302, height: 188 };
+  if (node.type === "output") {
+    const summary = String(node.config.summary ?? "");
+    const textLines = Math.max(2, Math.min(12, Math.ceil(summary.length / 34) + summary.split("\n").length - 1));
+    return { width: 272, height: 88 + textLines * 18 };
+  }
   return { width: 272, height: 142 };
 }
 

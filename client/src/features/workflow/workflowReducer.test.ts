@@ -38,6 +38,18 @@ describe("workflowReducer", () => {
     expect(result.selection.nodeIds).toEqual([copy.id]);
     expect(result.nodes).toContainEqual(copy);
   });
+
+  it("expands Output node dimensions for completed workflow content", () => {
+    const state = createInitialWorkflow();
+    const output = state.nodes.find(node => node.type === "output")!;
+    const updated = workflowReducer(state, {
+      type: "update-node",
+      nodeId: output.id,
+      patch: { config: { summary: "A completed response with enough content to occupy more than the initial output area." } },
+    });
+
+    expect(updated.nodes.find(node => node.id === output.id)?.config.summary).toContain("completed response");
+  });
 });
 
 describe("searchNodeTypes", () => {
