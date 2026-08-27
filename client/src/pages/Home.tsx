@@ -3,6 +3,8 @@ import { trpc } from "@/lib/trpc";
 import { AgentRunResult } from "@shared/execution";
 import { WorkflowCanvas } from "../features/canvas/WorkflowCanvas";
 import { executionReducer, ExecutionState } from "../features/execution/executionState";
+import { LocalExecutionStorageAdapter } from "../features/execution/storage";
+import { RawDataView } from "../features/inspection/RawDataView";
 import { LeftPanel } from "../features/panels/LeftPanel";
 import { Appearance, TopPanel } from "../features/panels/TopPanel";
 import { RightPanel } from "../features/panels/RightPanel";
@@ -11,6 +13,7 @@ import { createInitialWorkflow, createNode, createWorkflowEdge, NodeConfiguratio
 import { workflowReducer } from "../features/workflow/workflowReducer";
 
 const storage = new LocalWorkflowStorageAdapter();
+const executionStorage = new LocalExecutionStorageAdapter();
 const nextNodeIndex = (nodes: WorkflowNode[]) => Math.max(0, ...nodes.map(node => node.index)) + 1;
 const createRunId = () => typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `run-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -20,6 +23,7 @@ export default function Home() {
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
   const [topOpen, setTopOpen] = useState(true);
+  const [rawNodeId, setRawNodeId] = useState<string>();
   const [appearance, setAppearance] = useState<Appearance>(() => (localStorage.getItem("articulate:appearance") as Appearance) || "system");
   const clipboard = useRef<WorkflowNode[]>([]);
   const pasteCount = useRef(0);
@@ -41,9 +45,22 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    let mounted = true;
+    executionStorage.load().then(records => {
+      if (mounted) dispatchExecution({ type: "hydrate", records });
+    });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
     const saveTimer = window.setTimeout(() => { storage.save(workflow); }, 250);
     return () => window.clearTimeout(saveTimer);
   }, [workflow]);
+
+  useEffect(() => {
+    const saveTimer = window.setTimeout(() => { executionStorage.save(execution); }, 250);
+    return () => window.clearTimeout(saveTimer);
+  }, [execution]);
 
   const selectedNodes = useMemo(
     () => workflow.nodes.filter(node => workflow.selection.nodeIds.includes(node.id)),
@@ -100,7 +117,7 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [copySelection, pasteSelection, workflow.selection.nodeIds]);
 
-  const onNodeAction = (nodeId: string, action: "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable") => {
+  const onNodeAction = (nodeId: string, action: "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw") => {
     const node = workflow.nodes.find(candidate => candidate.id === nodeId);
     if (!node) return;
     if (action === "delete") dispatch({ type: "delete-nodes", nodeIds: [nodeId] });
@@ -112,7 +129,13 @@ export default function Home() {
     if (action === "toggle-lock") dispatch({ type: "toggle-lock", nodeId });
     if (action === "toggle-bypass") dispatch({ type: "toggle-bypass", nodeId });
     if (action === "toggle-disable") dispatch({ type: "toggle-disable", nodeId });
+    if (action === "view-raw") {
+      dispatch({ type: "set-selection", selection: { nodeIds: [nodeId], edgeIds: [] } });
+      setRawNodeId(nodeId);
+    }
   };
+
+  const rawNode = rawNodeId ? workflow.nodes.find(node => node.id === rawNodeId) : undefined;
 
   const onConfigChange = (nodeId: string, config: Partial<NodeConfiguration>) => {
     dispatch({ type: "update-node", nodeId, patch: { config } });
@@ -259,9 +282,10 @@ export default function Home() {
         onExecutionAction={onExecutionAction}
       />
       <LeftPanel open={leftOpen} onToggle={() => setLeftOpen(open => !open)} onAddNode={addNode} onCopy={copySelection} canCopy={selectedNodes.length > 0} />
-      <RightPanel open={rightOpen} node={selectedNode} onToggle={() => setRightOpen(open => !open)} onConfigChange={onConfigChange} />
+      <RightPanel open={rightOpen} node={selectedNode} execution={execution} nodes={workflow.nodes} onToggle={() => setRightOpen(open => !open)} onConfigChange={onConfigChange} />
       <TopPanel open={topOpen} appearance={appearance} onToggle={() => setTopOpen(open => !open)} onAppearanceChange={setAppearance} onPaste={pasteSelection} canPaste={clipboard.current.length > 0} />
       <div className="shortcut-strip"><span><kbd>SPACE + DRAG</kbd> PAN</span><span><kbd>SHIFT + DRAG</kbd> SELECT</span><span><kbd>⌘/CTRL C/V</kbd> COPY / PASTE</span></div>
+      {rawNode && <RawDataView workflow={workflow} node={rawNode} onClose={() => setRawNodeId(undefined)} />}
     </div>
   );
 }

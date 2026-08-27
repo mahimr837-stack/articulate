@@ -4,7 +4,7 @@ import { WorkflowNode } from "../nodes/WorkflowNode";
 import { ExecutionState } from "../execution/executionState";
 import { createWorkflowEdge, getDerivedBypassEdges, getNodeDimensions, GraphPosition, isWorkflowEdgeEnabled, isWorkflowNodeBypassed, NodeConfiguration, WorkflowEdge, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
 
-type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable";
+type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw";
 
 type CanvasProps = {
   nodes: WorkflowNodeData[];

@@ -1,27 +1,63 @@
-import { Check, ChevronLeft, ChevronRight, KeyRound, LockKeyhole, SlidersHorizontal, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Clock3, KeyRound, LockKeyhole, SlidersHorizontal, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ExecutionState, formatDuration } from "../execution/executionState";
 import { NodeConfiguration, WorkflowNode } from "../workflow/types";
 
 type RightPanelProps = {
   open: boolean;
   node?: WorkflowNode;
+  execution: ExecutionState;
+  nodes: WorkflowNode[];
   onToggle: () => void;
   onConfigChange: (nodeId: string, config: Partial<NodeConfiguration>) => void;
 };
 
-export function RightPanel({ open, node, onToggle, onConfigChange }: RightPanelProps) {
+export function RightPanel({ open, node, execution, nodes, onToggle, onConfigChange }: RightPanelProps) {
+  const [view, setView] = useState<"inspect" | "history">("inspect");
+  const historyRuns = useMemo(
+    () => Object.entries(execution)
+      .filter(([, record]) => record.history.length > 0)
+      .sort(([, a], [, b]) => (b.startedAt ?? 0) - (a.startedAt ?? 0)),
+    [execution],
+  );
+
   if (!open) {
-    return <button className="panel-rail panel-rail-right" onClick={onToggle} aria-label="Open inspector"><ChevronLeft size={17} /></button>;
+    return <button className="panel-rail panel-rail-right" onClick={onToggle} aria-label="Open inspector and history"><ChevronLeft size={17} /></button>;
   }
 
   const isAgent = node?.type === "ai-agent";
   return (
     <aside className="app-panel right-panel">
       <div className="panel-header inspector-header">
-        <div><strong>Inspector</strong></div>
+        <div><strong>{view === "history" ? "History" : "Inspector"}</strong></div>
         <button className="collapse-button" onClick={onToggle} aria-label="Collapse inspector"><ChevronRight size={17} /></button>
       </div>
-      <div className="blueprint-rule"><span /></div>
-      {node ? (
+      <div className="right-panel-tabs">
+        <button className={view === "inspect" ? "active" : ""} onClick={() => setView("inspect")}>Inspect</button>
+        <button className={view === "history" ? "active" : ""} onClick={() => setView("history")}><Clock3 size={13} /> History</button>
+      </div>
+      {view === "history" ? (
+        <section className="history-panel">
+          {historyRuns.length ? historyRuns.map(([inputNodeId, run]) => (
+            <div className="history-run" key={inputNodeId}>
+              <div className="history-run-meta"><span>Run</span><strong>{formatDuration(run.durationMs)}</strong></div>
+              <ol>
+                {run.history.map((step, index) => {
+                  const nodeTitle = step.kind === "output"
+                    ? "Output"
+                    : nodes.find(candidate => candidate.id === step.nodeId)?.title ?? step.kind;
+                  return (
+                    <li key={step.id} className={`history-step state-${step.status}`}>
+                      <span className="history-order">{index + 1}</span>
+                      <div><strong>{nodeTitle}</strong><small>{step.kind === "agent" ? formatDuration(step.durationMs) : formatDuration(step.durationMs)}</small></div>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          )) : <div className="history-empty"><Clock3 size={22} /><h2>No executions yet</h2><p>Run an Input node to inspect its recorded workflow steps.</p></div>}
+        </section>
+      ) : node ? (
         <>
           <section className="inspector-title">
             <div className="mini-index">{String(node.index).padStart(2, "0")}</div>
@@ -66,7 +102,7 @@ export function RightPanel({ open, node, onToggle, onConfigChange }: RightPanelP
             )}
           </section>
           <section className="inspector-section position-readout">
-            <div className="section-kicker">POSITION</div>
+            <div className="section-kicker">Position</div>
             <div><span>X</span><b>{node.position.x}</b><span>Y</span><b>{node.position.y}</b></div>
           </section>
         </>

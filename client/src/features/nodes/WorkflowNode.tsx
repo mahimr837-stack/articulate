@@ -2,8 +2,11 @@ import {
   AlignJustify,
   Bot,
   Braces,
+  ChevronUp,
   CircleOff,
+  Clock3,
   Copy,
+  Code2,
   Database,
   FileText,
   GitFork,
@@ -19,11 +22,11 @@ import {
   Unlock,
   Upload,
 } from "lucide-react";
-import { PointerEvent, ReactNode, useState } from "react";
-import { NodeExecution, idleExecution } from "../execution/executionState";
+import { PointerEvent, ReactNode, useEffect, useState } from "react";
+import { formatDuration, getExecutionDuration, NodeExecution, idleExecution } from "../execution/executionState";
 import { getNodeDimensions, nodeCatalog, NodeConfiguration, WorkflowNode as WorkflowNodeData } from "../workflow/types";
 
-type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable";
+type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw";
 
 type WorkflowNodeProps = {
   node: WorkflowNodeData;
@@ -65,6 +68,7 @@ function NodeMenu({ node, onAction }: Pick<WorkflowNodeProps, "node" | "onAction
       {open && (
         <div className="node-menu" role="menu">
           <button onClick={() => perform("configure")}>Configure</button>
+          <button className="node-menu-icon-item" onClick={() => perform("view-raw")}><Code2 size={13} /> Raw data</button>
           <button onClick={() => perform("duplicate")}>Duplicate</button>
           <button onClick={() => perform("toggle-bypass")}>{node.bypassed ? "Restore" : "Bypass"}</button>
           <button onClick={() => perform("toggle-disable")}>{node.disabled ? "Enable" : "Disable"}</button>
@@ -114,6 +118,20 @@ function GenericNodeContent({ node }: { node: WorkflowNodeData }) {
   );
 }
 
+function ExecutionTimer({ execution }: { execution: NodeExecution }) {
+  const [now, setNow] = useState(() => Date.now());
+  const active = execution.status === "running" || execution.status === "retrying";
+
+  useEffect(() => {
+    if (!active) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 100);
+    return () => window.clearInterval(interval);
+  }, [active]);
+
+  if (!active || !execution.startedAt) return null;
+  return <div className="input-execution-timer"><Clock3 size={12} /> {formatDuration(getExecutionDuration(execution, now))}</div>;
+}
+
 export function WorkflowNode({
   node,
   selected,
@@ -127,6 +145,8 @@ export function WorkflowNode({
   const dimensions = getNodeDimensions(node);
   const hasInput = node.type !== "input";
   const hasOutput = node.type !== "output";
+  const [executionTimeOpen, setExecutionTimeOpen] = useState(false);
+  const hasRecordedExecution = node.type === "input" && execution.status !== "idle" && execution.durationMs !== undefined && execution.status !== "running" && execution.status !== "retrying";
 
   return (
     <div
@@ -135,6 +155,7 @@ export function WorkflowNode({
       style={{ left: node.position.x, top: node.position.y, width: dimensions.width, minHeight: dimensions.height }}
       onPointerDown={event => onNodePointerDown(event, node.id)}
     >
+      {node.type === "input" && <ExecutionTimer execution={execution} />}
       {hasInput && (
         <button
           className="node-port port-in"
@@ -162,6 +183,18 @@ export function WorkflowNode({
 
       <div className="node-topline">
         <div className="node-kind"><NodeIcon type={node.type} /></div>
+        {hasRecordedExecution && (
+          <div className="input-timing-wrap" onPointerDown={event => event.stopPropagation()}>
+            <button
+              className="input-timing-control"
+              type="button"
+              aria-label="Show recorded execution time"
+              aria-expanded={executionTimeOpen}
+              onClick={() => setExecutionTimeOpen(open => !open)}
+            ><ChevronUp size={13} /></button>
+            {executionTimeOpen && <div className="input-timing-panel"><span>Last run</span><strong>{formatDuration(execution.durationMs)}</strong></div>}
+          </div>
+        )}
         <div className="node-index">{node.index}</div>
       </div>
       <div className="node-heading">

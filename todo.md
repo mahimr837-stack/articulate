@@ -33,3 +33,8 @@
 - [x] Add Input-node Run, Pause, Resume, Retry, and execution state feedback driven by request lifecycle events.
 - [x] Create or update Output-node content from completed execution without altering graph structure.
 - [x] Test execution state transitions and server result handling, visually validate the flow, and save the execution checkpoint.
+- [x] Persist per-Input execution records with actual timestamps, durations, status, and ordered workflow history data.
+- [x] Add a live external timer above running Input nodes and a compact execution-time disclosure after completion.
+- [x] Add a collapsible right-side execution history panel that represents the recorded run order and durations.
+- [x] Add a Raw data node-menu action and a neighbor-aware raw content view for the selected node.
+- [x] Test execution inspection state, visually validate timers/history/raw data, and save the inspection checkpoint.
