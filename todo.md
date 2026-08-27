@@ -13,3 +13,6 @@
 - [x] Add Supabase-ready workflow-storage adapter interfaces without connecting or executing workflows.
 - [x] Create unit tests for workflow reducer operations and run the test and type-check suites.
 - [x] Visually verify desktop and mobile layouts, review interaction errors, and save the completed project checkpoint.
+- [x] Replace the blueprint-style visual system with a restrained, neutral developer-tool visual system while preserving editor behavior.
+- [x] Simplify canvas grid, node chrome, panels, controls, typography, and theme surfaces without changing workflow interactions.
+- [x] Visually validate the neutral redesign on desktop and mobile, run regression checks, and save a redesign checkpoint.

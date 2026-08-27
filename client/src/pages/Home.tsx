@@ -12,7 +12,7 @@ const nextNodeIndex = (nodes: WorkflowNode[]) => Math.max(0, ...nodes.map(node =
 
 export default function Home() {
   const [workflow, dispatch] = useReducer(workflowReducer, undefined, () => createInitialWorkflow());
-  const [leftOpen, setLeftOpen] = useState(() => typeof window === "undefined" || window.innerWidth > 600);
+  const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
   const [topOpen, setTopOpen] = useState(true);
   const [appearance, setAppearance] = useState<Appearance>(() => (localStorage.getItem("articulate:appearance") as Appearance) || "system");

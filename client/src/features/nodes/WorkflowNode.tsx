@@ -10,7 +10,6 @@ import {
   MoreHorizontal,
   PanelTop,
   Sparkles,
-  Unlock,
   Upload,
 } from "lucide-react";
 import { PointerEvent, useState } from "react";
@@ -122,13 +121,12 @@ export function WorkflowNode({
       )}
 
       <div className="node-topline">
-        <div className="node-kind"><NodeIcon type={node.type} /><span>{nodeCatalog[node.type].eyebrow}</span></div>
-        <div className="node-index">{String(node.index).padStart(2, "0")}</div>
+        <div className="node-kind"><NodeIcon type={node.type} /></div>
+        <div className="node-index">{node.index}</div>
       </div>
       <div className="node-heading">
         <div>
           <h3>{node.title}</h3>
-          <span className="node-id">{node.id.slice(0, 8).toUpperCase()}</span>
         </div>
         <NodeMenu node={node} onAction={onAction} />
       </div>
@@ -143,7 +141,6 @@ export function WorkflowNode({
             onChange={event => onConfigChange(node.id, { prompt: event.target.value })}
             onKeyDown={event => event.stopPropagation()}
           />
-          <span className="prompt-measure">PROMPT</span>
         </div>
       ) : node.type === "ai-agent" ? (
         <div className="agent-summary">
@@ -158,10 +155,7 @@ export function WorkflowNode({
         <GenericNodeContent node={node} />
       )}
 
-      {node.locked && <div className="node-lock-mark"><Lock size={12} /> FIXED</div>}
-      {!node.locked && selected && <div className="node-drag-mark">DRAG</div>}
+      {node.locked && <div className="node-lock-mark"><Lock size={12} /></div>}
     </div>
   );
 }
-
-export const lockActionIcon = (locked: boolean) => (locked ? <Unlock size={14} /> : <Lock size={14} />);

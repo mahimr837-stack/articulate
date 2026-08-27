@@ -17,7 +17,7 @@ export function RightPanel({ open, node, onToggle, onConfigChange }: RightPanelP
   return (
     <aside className="app-panel right-panel">
       <div className="panel-header inspector-header">
-        <div><strong>INSPECTOR</strong><span>{node ? `NODE ${String(node.index).padStart(2, "0")}` : "NO SELECTION"}</span></div>
+        <div><strong>Inspector</strong></div>
         <button className="collapse-button" onClick={onToggle} aria-label="Collapse inspector"><ChevronRight size={17} /></button>
       </div>
       <div className="blueprint-rule"><span /></div>
@@ -25,10 +25,10 @@ export function RightPanel({ open, node, onToggle, onConfigChange }: RightPanelP
         <>
           <section className="inspector-title">
             <div className="mini-index">{String(node.index).padStart(2, "0")}</div>
-            <div><p>{node.type.toUpperCase().replace("-", " ")}</p><h2>{node.title}</h2></div>
+            <div><h2>{node.title}</h2></div>
           </section>
           <section className="inspector-section">
-            <div className="section-kicker"><SlidersHorizontal size={14} /> CONFIGURATION</div>
+            <div className="section-kicker"><SlidersHorizontal size={14} /> Configuration</div>
             {isAgent ? (
               <div className="agent-config-form">
                 <label>Provider
@@ -73,7 +73,6 @@ export function RightPanel({ open, node, onToggle, onConfigChange }: RightPanelP
       ) : (
         <div className="empty-inspector"><SlidersHorizontal size={24} /><h2>Nothing selected</h2><p>Select a node on the canvas to inspect its configuration.</p></div>
       )}
-      <div className="panel-footnote"><i /> PERSISTENCE: SUPABASE-READY</div>
     </aside>
   );
 }

@@ -1,4 +1,4 @@
-import { ChevronUp, Clipboard, CloudOff, Command, Eye, PanelTopClose, Redo2, Undo2 } from "lucide-react";
+import { ChevronUp, Clipboard, Command, Eye, PanelTopClose, Redo2, Undo2 } from "lucide-react";
 
 export type Appearance = "white" | "grey" | "night" | "system";
 
@@ -22,9 +22,8 @@ export function TopPanel({ open, appearance, onToggle, onAppearanceChange, onPas
   if (!open) return <button className="top-rail" onClick={onToggle} aria-label="Open top controls"><ChevronUp size={17} /></button>;
   return (
     <header className="top-panel">
-      <div className="top-identity"><span className="top-geometry" /><div><p>WORKFLOW / DRAFT</p><h1>Untitled workflow</h1></div></div>
+      <div className="top-identity"><span className="top-geometry" /><div><h1>Untitled workflow</h1></div></div>
       <div className="top-center-tools">
-        <div className="status-chip"><CloudOff size={13} /> LOCAL-FIRST</div>
         <div className="tool-segment"><button disabled aria-label="Undo"><Undo2 size={15} /></button><button disabled aria-label="Redo"><Redo2 size={15} /></button></div>
         <button className="top-tool" onClick={onPaste} disabled={!canPaste}><Clipboard size={15} /> Paste</button>
       </div>
