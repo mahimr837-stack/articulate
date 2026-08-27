@@ -38,3 +38,9 @@
 - [x] Add a collapsible right-side execution history panel that represents the recorded run order and durations.
 - [x] Add a Raw data node-menu action and a neighbor-aware raw content view for the selected node.
 - [x] Test execution inspection state, visually validate timers/history/raw data, and save the inspection checkpoint.
+- [x] Extend the node catalog and workflow configuration contracts for Document, Tunnel, Format, Split, and Blank nodes.
+- [x] Add server-side Document uploads that store file bytes securely and persist only file metadata in workflow state.
+- [x] Build organized Document node file management with multi-file support and safe file references.
+- [x] Implement Tunnel target selection and persistent multi-target document routes without removing existing ropes.
+- [x] Implement configurable Format, Split, and Blank node interfaces through the shared node architecture.
+- [x] Test node configuration, document metadata, and tunnel routing, then visually validate the expanded node library and save a checkpoint.

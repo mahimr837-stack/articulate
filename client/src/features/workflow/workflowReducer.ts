@@ -95,7 +95,9 @@ export function workflowReducer(state: WorkflowState, action: WorkflowAction): W
           edge.source === action.edge.source &&
           edge.target === action.edge.target &&
           edge.sourcePort === action.edge.sourcePort &&
-          edge.targetPort === action.edge.targetPort,
+          edge.targetPort === action.edge.targetPort &&
+          edge.metadata?.documentId === action.edge.metadata?.documentId &&
+          Boolean(edge.metadata?.tunnel) === Boolean(action.edge.metadata?.tunnel),
       );
       return duplicate ? state : stamp(state, { edges: [...state.edges, action.edge] });
     }

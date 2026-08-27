@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createInitialWorkflow, createNode, getDerivedBypassEdges, getIncomingWorkflowEdges, searchNodeTypes } from "./types";
+import { createDocumentTunnel, createInitialWorkflow, createNode, createWorkflowEdge, DocumentFile, getDerivedBypassEdges, getIncomingWorkflowEdges, getTunneledDocuments, searchNodeTypes, workflowNodeTypes } from "./types";
 import { workflowReducer } from "./workflowReducer";
 
 describe("workflowReducer", () => {
@@ -56,7 +56,7 @@ describe("searchNodeTypes", () => {
   it("finds node types by their name or purpose", () => {
     expect(searchNodeTypes("agent")).toEqual(["ai-agent"]);
     expect(searchNodeTypes("state")).toEqual(["memory"]);
-    expect(searchNodeTypes("   ")).toHaveLength(8);
+    expect(searchNodeTypes("   ")).toHaveLength(workflowNodeTypes.length);
   });
 });
 
@@ -119,5 +119,38 @@ describe("node bypass and disable states", () => {
     expect(bypassed.nodes.find(node => node.id === agent.id)).toMatchObject({ bypassed: true, disabled: false });
     expect(disabled.nodes.find(node => node.id === agent.id)).toMatchObject({ bypassed: false, disabled: true });
     expect(restored.nodes.find(node => node.id === agent.id)).toMatchObject({ bypassed: false, disabled: false });
+  });
+});
+
+describe("extended node defaults", () => {
+  it("creates document, format, split, and blank configurations through the shared node factory", () => {
+    expect(createNode("document", { x: 0, y: 0 }, 1).config).toMatchObject({ files: [], tunnels: [] });
+    expect(createNode("format", { x: 0, y: 0 }, 2).config.formatInstruction).toContain("Extract");
+    expect(createNode("split", { x: 0, y: 0 }, 3).config.splitOutputs).toEqual(["Output 1", "Output 2"]);
+    expect(createNode("blank", { x: 0, y: 0 }, 4).config.blankContent).toBe("");
+  });
+});
+
+describe("document tunnels", () => {
+  it("keeps tunnel metadata in a Document node and exposes delivered files to multiple graph targets", () => {
+    const state = createInitialWorkflow();
+    const source = createNode("document", { x: 0, y: 0 }, 5);
+    const [input, , agent] = state.nodes;
+    const file: DocumentFile = { id: "file-1", name: "source.csv", mimeType: "text/csv", size: 42, storageKey: "documents/source.csv", storageUrl: "/manus-storage/documents/source.csv", uploadedAt: 1 };
+    const first = createDocumentTunnel(source.id, file.id, input!.id);
+    const second = createDocumentTunnel(source.id, file.id, agent!.id);
+    const workflow = {
+      ...state,
+      nodes: [...state.nodes, { ...source, config: { files: [file], tunnels: [first, second] } }],
+      edges: [
+        ...state.edges,
+        createWorkflowEdge({ id: first.id, source: source.id, target: input!.id, sourcePort: "out", targetPort: "in", metadata: { tunnel: true, documentId: file.id } }),
+        createWorkflowEdge({ id: second.id, source: source.id, target: agent!.id, sourcePort: "out", targetPort: "in", metadata: { tunnel: true, documentId: file.id } }),
+      ],
+    };
+
+    expect(getTunneledDocuments(workflow, input!.id)).toEqual([file]);
+    expect(getTunneledDocuments(workflow, agent!.id)).toEqual([file]);
+    expect(workflow.edges.filter(edge => edge.metadata?.tunnel)).toHaveLength(2);
   });
 });

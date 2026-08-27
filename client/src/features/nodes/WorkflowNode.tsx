@@ -15,18 +15,20 @@ import {
   MoreHorizontal,
   PanelTop,
   Power,
+  Share2,
   Settings2,
   Sparkles,
+  StickyNote,
   SkipForward,
   Trash2,
   Unlock,
   Upload,
 } from "lucide-react";
-import { PointerEvent, ReactNode, useEffect, useState } from "react";
+import { ChangeEvent, PointerEvent, ReactNode, useEffect, useState } from "react";
 import { formatDuration, getExecutionDuration, NodeExecution, idleExecution } from "../execution/executionState";
-import { getNodeDimensions, nodeCatalog, NodeConfiguration, WorkflowNode as WorkflowNodeData } from "../workflow/types";
+import { DocumentFile, getNodeDimensions, nodeCatalog, NodeConfiguration, WorkflowNode as WorkflowNodeData } from "../workflow/types";
 
-type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw";
+type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw" | "tunnel";
 
 type WorkflowNodeProps = {
   node: WorkflowNodeData;
@@ -37,6 +39,9 @@ type WorkflowNodeProps = {
   onConfigChange: (nodeId: string, config: Partial<NodeConfiguration>) => void;
   execution?: NodeExecution;
   onExecutionAction?: (nodeId: string, action: "run" | "pause" | "resume" | "retry") => void;
+  onDocumentUpload?: (nodeId: string, files: File[]) => void;
+  isDocumentUploading?: boolean;
+  documentError?: string;
 };
 
 function NodeIcon({ type }: { type: WorkflowNodeData["type"] }) {
@@ -50,6 +55,7 @@ function NodeIcon({ type }: { type: WorkflowNodeData["type"] }) {
     case "document": return <FileText {...iconProps} />;
     case "format": return <Braces {...iconProps} />;
     case "split": return <GitFork {...iconProps} />;
+    case "blank": return <StickyNote {...iconProps} />;
   }
 }
 
@@ -69,6 +75,7 @@ function NodeMenu({ node, onAction }: Pick<WorkflowNodeProps, "node" | "onAction
         <div className="node-menu" role="menu">
           <button onClick={() => perform("configure")}>Configure</button>
           <button className="node-menu-icon-item" onClick={() => perform("view-raw")}><Code2 size={13} /> Raw data</button>
+          {node.type === "document" && <button className="node-menu-icon-item" onClick={() => perform("tunnel")}><Share2 size={13} /> Tunnel</button>}
           <button onClick={() => perform("duplicate")}>Duplicate</button>
           <button onClick={() => perform("toggle-bypass")}>{node.bypassed ? "Restore" : "Bypass"}</button>
           <button onClick={() => perform("toggle-disable")}>{node.disabled ? "Enable" : "Disable"}</button>
@@ -132,6 +139,49 @@ function ExecutionTimer({ execution }: { execution: NodeExecution }) {
   return <div className="input-execution-timer"><Clock3 size={12} /> {formatDuration(getExecutionDuration(execution, now))}</div>;
 }
 
+function DocumentNodeContent({ node, onDocumentUpload, isDocumentUploading, documentError }: Pick<WorkflowNodeProps, "node" | "onDocumentUpload" | "isDocumentUploading" | "documentError">) {
+  const files = (node.config.files as DocumentFile[] | undefined) ?? [];
+  const onFilesChosen = (event: ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(event.target.files ?? []);
+    if (selected.length) onDocumentUpload?.(node.id, selected);
+    event.target.value = "";
+  };
+
+  const tunnels = (node.config.tunnels ?? []).length;
+  return <div className="document-node-content" onPointerDown={event => event.stopPropagation()}>
+    <div className="document-file-list">
+      {files.length ? files.slice(0, 4).map(file => <a key={file.id} href={file.storageUrl} target="_blank" rel="noreferrer" title={file.name}><FileText size={13} /><span>{file.name}</span></a>) : <p>No files uploaded</p>}
+    </div>
+    <label className="document-upload-control">
+      <Upload size={13} /><span>{isDocumentUploading ? "Uploading…" : "Upload files"}</span>
+      <input type="file" multiple onChange={onFilesChosen} disabled={isDocumentUploading} />
+    </label>
+    {tunnels > 0 && <p className="document-tunnel-count"><Share2 size={12} /> {tunnels} tunnel{tunnels === 1 ? "" : "s"}</p>}
+    {documentError && <p className="document-error">{documentError}</p>}
+  </div>;
+}
+
+function FormatNodeContent({ node, onConfigChange }: Pick<WorkflowNodeProps, "node" | "onConfigChange">) {
+  return <div className="node-editable-content" onPointerDown={event => event.stopPropagation()}>
+    <textarea value={String(node.config.formatInstruction ?? "")} placeholder="Describe what to extract or classify" onChange={event => onConfigChange(node.id, { formatInstruction: event.target.value })} onKeyDown={event => event.stopPropagation()} />
+  </div>;
+}
+
+function SplitNodeContent({ node, onConfigChange }: Pick<WorkflowNodeProps, "node" | "onConfigChange">) {
+  const outputs = (node.config.splitOutputs as string[] | undefined) ?? [];
+  const updateOutput = (index: number, value: string) => onConfigChange(node.id, { splitOutputs: outputs.map((output, outputIndex) => outputIndex === index ? value : output) });
+  return <div className="split-node-content" onPointerDown={event => event.stopPropagation()}>
+    {outputs.map((output, index) => <label key={`${index}-${output}`}><span>{index + 1}</span><input value={output} aria-label={`Split output ${index + 1}`} onChange={event => updateOutput(index, event.target.value)} /></label>)}
+    <button type="button" onClick={() => onConfigChange(node.id, { splitOutputs: [...outputs, `Output ${outputs.length + 1}`] })}>Add output</button>
+  </div>;
+}
+
+function BlankNodeContent({ node, onConfigChange }: Pick<WorkflowNodeProps, "node" | "onConfigChange">) {
+  return <div className="node-editable-content blank-node-content" onPointerDown={event => event.stopPropagation()}>
+    <textarea value={String(node.config.blankContent ?? "")} placeholder="Write anything…" onChange={event => onConfigChange(node.id, { blankContent: event.target.value })} onKeyDown={event => event.stopPropagation()} />
+  </div>;
+}
+
 export function WorkflowNode({
   node,
   selected,
@@ -141,6 +191,9 @@ export function WorkflowNode({
   onConfigChange,
   execution = idleExecution,
   onExecutionAction,
+  onDocumentUpload,
+  isDocumentUploading,
+  documentError,
 }: WorkflowNodeProps) {
   const dimensions = getNodeDimensions(node);
   const hasInput = node.type !== "input";
@@ -227,6 +280,14 @@ export function WorkflowNode({
             <b>{node.config.apiKeyAvailable ? "✓" : "×"}</b>
           </div>
         </div>
+      ) : node.type === "document" ? (
+        <DocumentNodeContent node={node} onDocumentUpload={onDocumentUpload} isDocumentUploading={isDocumentUploading} documentError={documentError} />
+      ) : node.type === "format" ? (
+        <FormatNodeContent node={node} onConfigChange={onConfigChange} />
+      ) : node.type === "split" ? (
+        <SplitNodeContent node={node} onConfigChange={onConfigChange} />
+      ) : node.type === "blank" ? (
+        <BlankNodeContent node={node} onConfigChange={onConfigChange} />
       ) : (
         <GenericNodeContent node={node} />
       )}

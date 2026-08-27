@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { trpc } from "@/lib/trpc";
 import { AgentRunResult } from "@shared/execution";
 import { WorkflowCanvas } from "../features/canvas/WorkflowCanvas";
+import { TunnelTargetPicker } from "../features/documents/TunnelTargetPicker";
 import { executionReducer, ExecutionState } from "../features/execution/executionState";
 import { LocalExecutionStorageAdapter } from "../features/execution/storage";
 import { RawDataView } from "../features/inspection/RawDataView";
@@ -9,7 +10,7 @@ import { LeftPanel } from "../features/panels/LeftPanel";
 import { Appearance, TopPanel } from "../features/panels/TopPanel";
 import { RightPanel } from "../features/panels/RightPanel";
 import { LocalWorkflowStorageAdapter } from "../features/workflow/storage";
-import { createInitialWorkflow, createNode, createWorkflowEdge, NodeConfiguration, NodeType, WorkflowNode } from "../features/workflow/types";
+import { createDocumentTunnel, createInitialWorkflow, createNode, createWorkflowEdge, DocumentFile, NodeConfiguration, NodeType, WorkflowNode } from "../features/workflow/types";
 import { workflowReducer } from "../features/workflow/workflowReducer";
 
 const storage = new LocalWorkflowStorageAdapter();
@@ -24,6 +25,9 @@ export default function Home() {
   const [rightOpen, setRightOpen] = useState(false);
   const [topOpen, setTopOpen] = useState(true);
   const [rawNodeId, setRawNodeId] = useState<string>();
+  const [tunnelSourceNodeId, setTunnelSourceNodeId] = useState<string>();
+  const [uploadingDocumentId, setUploadingDocumentId] = useState<string>();
+  const [documentErrors, setDocumentErrors] = useState<Record<string, string | undefined>>({});
   const [appearance, setAppearance] = useState<Appearance>(() => (localStorage.getItem("articulate:appearance") as Appearance) || "system");
   const clipboard = useRef<WorkflowNode[]>([]);
   const pasteCount = useRef(0);
@@ -117,7 +121,7 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [copySelection, pasteSelection, workflow.selection.nodeIds]);
 
-  const onNodeAction = (nodeId: string, action: "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw") => {
+  const onNodeAction = (nodeId: string, action: "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw" | "tunnel") => {
     const node = workflow.nodes.find(candidate => candidate.id === nodeId);
     if (!node) return;
     if (action === "delete") dispatch({ type: "delete-nodes", nodeIds: [nodeId] });
@@ -133,12 +137,50 @@ export default function Home() {
       dispatch({ type: "set-selection", selection: { nodeIds: [nodeId], edgeIds: [] } });
       setRawNodeId(nodeId);
     }
+    if (action === "tunnel" && node.type === "document") setTunnelSourceNodeId(nodeId);
   };
 
   const rawNode = rawNodeId ? workflow.nodes.find(node => node.id === rawNodeId) : undefined;
+  const tunnelSourceNode = tunnelSourceNodeId ? workflow.nodes.find(node => node.id === tunnelSourceNodeId && node.type === "document") : undefined;
 
   const onConfigChange = (nodeId: string, config: Partial<NodeConfiguration>) => {
     dispatch({ type: "update-node", nodeId, patch: { config } });
+  };
+
+  const onDocumentUpload = async (nodeId: string, files: File[]) => {
+    const node = workflow.nodes.find(candidate => candidate.id === nodeId);
+    if (!node || node.type !== "document") return;
+    setUploadingDocumentId(nodeId);
+    setDocumentErrors(errors => ({ ...errors, [nodeId]: undefined }));
+    try {
+      const uploaded: DocumentFile[] = [];
+      for (const file of files) {
+        const response = await fetch("/api/documents/upload", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": file.type || "application/octet-stream", "X-Document-Name": encodeURIComponent(file.name) },
+          body: file,
+        });
+        const payload = await response.json() as { file?: DocumentFile; error?: string };
+        if (!response.ok || !payload.file) throw new Error(payload.error ?? `Unable to upload ${file.name}.`);
+        uploaded.push(payload.file);
+      }
+      const existing = (node.config.files as DocumentFile[] | undefined) ?? [];
+      dispatch({ type: "update-node", nodeId, patch: { config: { files: [...existing, ...uploaded] } } });
+    } catch (error) {
+      setDocumentErrors(errors => ({ ...errors, [nodeId]: error instanceof Error ? error.message : "Unable to upload this document." }));
+    } finally {
+      setUploadingDocumentId(undefined);
+    }
+  };
+
+  const onTunnelDocuments = (targetNodeId: string, fileIds: string[]) => {
+    if (!tunnelSourceNode) return;
+    const existing = tunnelSourceNode.config.tunnels ?? [];
+    const tunnels = fileIds.map(fileId => createDocumentTunnel(tunnelSourceNode.id, fileId, targetNodeId));
+    dispatch({ type: "update-node", nodeId: tunnelSourceNode.id, patch: { config: { tunnels: [...existing, ...tunnels] } } });
+    tunnels.forEach(tunnel => dispatch({ type: "add-edge", edge: createWorkflowEdge({ id: tunnel.id, source: tunnel.sourceNodeId, target: tunnel.targetNodeId, sourcePort: "out", targetPort: "in", metadata: { tunnel: true, documentId: tunnel.documentId, label: "Document tunnel" } }) }));
+    setTunnelSourceNodeId(undefined);
   };
 
   const findConnectedAgent = (inputNodeId: string) => {
@@ -280,12 +322,16 @@ export default function Home() {
         onConfigChange={onConfigChange}
         execution={execution}
         onExecutionAction={onExecutionAction}
+        onDocumentUpload={onDocumentUpload}
+        uploadingDocumentId={uploadingDocumentId}
+        documentErrors={documentErrors}
       />
       <LeftPanel open={leftOpen} onToggle={() => setLeftOpen(open => !open)} onAddNode={addNode} onCopy={copySelection} canCopy={selectedNodes.length > 0} />
       <RightPanel open={rightOpen} node={selectedNode} execution={execution} nodes={workflow.nodes} onToggle={() => setRightOpen(open => !open)} onConfigChange={onConfigChange} />
       <TopPanel open={topOpen} appearance={appearance} onToggle={() => setTopOpen(open => !open)} onAppearanceChange={setAppearance} onPaste={pasteSelection} canPaste={clipboard.current.length > 0} />
       <div className="shortcut-strip"><span><kbd>SPACE + DRAG</kbd> PAN</span><span><kbd>SHIFT + DRAG</kbd> SELECT</span><span><kbd>⌘/CTRL C/V</kbd> COPY / PASTE</span></div>
       {rawNode && <RawDataView workflow={workflow} node={rawNode} onClose={() => setRawNodeId(undefined)} />}
+      {tunnelSourceNode && <TunnelTargetPicker source={tunnelSourceNode} nodes={workflow.nodes} onConfirm={onTunnelDocuments} onClose={() => setTunnelSourceNodeId(undefined)} />}
     </div>
   );
 }

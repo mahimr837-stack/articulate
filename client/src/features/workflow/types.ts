@@ -6,14 +6,38 @@ export type NodeType =
   | "memory"
   | "document"
   | "format"
-  | "split";
+  | "split"
+  | "blank";
+
+export type DocumentFile = {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  storageKey: string;
+  storageUrl: string;
+  uploadedAt: number;
+};
+
+export type DocumentTunnel = {
+  id: string;
+  documentId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  createdAt: number;
+};
 
 export type NodeConfiguration = {
   prompt?: string;
   model?: string;
   provider?: string;
   apiKeyAvailable?: boolean;
-  [key: string]: string | boolean | undefined;
+  files?: DocumentFile[];
+  tunnels?: DocumentTunnel[];
+  formatInstruction?: string;
+  splitOutputs?: string[];
+  blankContent?: string;
+  [key: string]: string | boolean | string[] | DocumentFile[] | DocumentTunnel[] | undefined;
 };
 
 export type GraphPosition = { x: number; y: number };
@@ -48,6 +72,8 @@ export type WorkflowEdge = {
     expiresAt?: number;
     viaNodeId?: string;
     derived?: boolean;
+    documentId?: string;
+    tunnel?: boolean;
   };
 };
 
@@ -112,6 +138,11 @@ export const nodeCatalog: Record<NodeType, NodeCatalogItem> = {
     eyebrow: "ROUTE",
     description: "Branch information into multiple paths.",
   },
+  blank: {
+    label: "Blank",
+    eyebrow: "NOTE",
+    description: "Write freeform information for the workflow.",
+  },
 };
 
 const id = () =>
@@ -127,6 +158,31 @@ export function createWorkflowEdge(
     enabled: edge.enabled ?? true,
     mode: edge.mode ?? "standard",
   };
+}
+
+export function createDocumentTunnel(
+  sourceNodeId: string,
+  documentId: string,
+  targetNodeId: string,
+): DocumentTunnel {
+  return {
+    id: `tunnel-${id()}`,
+    documentId,
+    sourceNodeId,
+    targetNodeId,
+    createdAt: Date.now(),
+  };
+}
+
+export function getTunneledDocuments(workflow: WorkflowState, targetNodeId: string): DocumentFile[] {
+  return workflow.nodes
+    .filter(node => node.type === "document")
+    .flatMap(node => {
+      const files = (node.config.files as DocumentFile[] | undefined) ?? [];
+      const tunnels = (node.config.tunnels as DocumentTunnel[] | undefined) ?? [];
+      const sentIds = new Set(tunnels.filter(tunnel => tunnel.targetNodeId === targetNodeId).map(tunnel => tunnel.documentId));
+      return files.filter(file => sentIds.has(file.id));
+    });
 }
 
 export function isWorkflowEdgeEnabled(edge: Pick<WorkflowEdge, "enabled"> | { enabled?: boolean }) {
@@ -206,7 +262,15 @@ export function createNode(
       ? { prompt: "Describe the outcome you want this workflow to produce." }
       : type === "ai-agent"
         ? { provider: "Manus", model: "Manus 1.6", apiKeyAvailable: false }
-        : {};
+        : type === "document"
+          ? { files: [], tunnels: [] }
+          : type === "format"
+            ? { formatInstruction: "Extract the requested information." }
+            : type === "split"
+              ? { splitOutputs: ["Output 1", "Output 2"] }
+              : type === "blank"
+                ? { blankContent: "" }
+                : {};
 
   return {
     id: id(),
@@ -262,6 +326,16 @@ export function getNodeDimensions(node: WorkflowNode) {
     const summary = String(node.config.summary ?? "");
     const textLines = Math.max(2, Math.min(12, Math.ceil(summary.length / 34) + summary.split("\n").length - 1));
     return { width: 272, height: 88 + textLines * 18 };
+  }
+  if (node.type === "document") {
+    return { width: 300, height: 166 + Math.min(4, (node.config.files as DocumentFile[] | undefined)?.length ?? 0) * 20 };
+  }
+  if (node.type === "blank") {
+    const content = String(node.config.blankContent ?? "");
+    return { width: 292, height: 138 + Math.min(8, Math.max(0, Math.ceil(content.length / 38))) * 16 };
+  }
+  if (node.type === "split") {
+    return { width: 272, height: 122 + Math.min(5, (node.config.splitOutputs as string[] | undefined)?.length ?? 0) * 22 };
   }
   return { width: 272, height: 142 };
 }

@@ -4,7 +4,7 @@ import { WorkflowNode } from "../nodes/WorkflowNode";
 import { ExecutionState } from "../execution/executionState";
 import { createWorkflowEdge, getDerivedBypassEdges, getNodeDimensions, GraphPosition, isWorkflowEdgeEnabled, isWorkflowNodeBypassed, NodeConfiguration, WorkflowEdge, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
 
-type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw";
+type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw" | "tunnel";
 
 type CanvasProps = {
   nodes: WorkflowNodeData[];
@@ -19,6 +19,9 @@ type CanvasProps = {
   onConfigChange: (nodeId: string, config: Partial<NodeConfiguration>) => void;
   execution: ExecutionState;
   onExecutionAction: (nodeId: string, action: "run" | "pause" | "resume" | "retry") => void;
+  onDocumentUpload: (nodeId: string, files: File[]) => void;
+  uploadingDocumentId?: string;
+  documentErrors: Record<string, string | undefined>;
 };
 
 type Viewport = { x: number; y: number; zoom: number };
@@ -72,6 +75,9 @@ export function WorkflowCanvas({
   onConfigChange,
   execution,
   onExecutionAction,
+  onDocumentUpload,
+  uploadingDocumentId,
+  documentErrors,
 }: CanvasProps) {
   const [viewport, setViewport] = useState<Viewport>(getDefaultViewport);
   const [interaction, setInteraction] = useState<Interaction>(null);
@@ -275,6 +281,9 @@ export function WorkflowCanvas({
             onConfigChange={onConfigChange}
             execution={execution[node.id]}
             onExecutionAction={onExecutionAction}
+            onDocumentUpload={onDocumentUpload}
+            isDocumentUploading={uploadingDocumentId === node.id}
+            documentError={documentErrors[node.id]}
           />
         ))}
       </div>
