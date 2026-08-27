@@ -1,10 +1,10 @@
 import { Minus, MousePointer2, Plus, Power, Scan, Trash2 } from "lucide-react";
-import { PointerEvent, WheelEvent, useMemo, useRef, useState } from "react";
-import { useEffect } from "react";
+import { PointerEvent, WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WorkflowNode } from "../nodes/WorkflowNode";
 import { ExecutionState } from "../execution/executionState";
 import { SafeAgentStatus } from "@shared/execution";
 import { createWorkflowEdge, getDerivedBypassEdges, getNodeDimensions, getWorkflowGroupForNode, GraphPosition, isWorkflowEdgeEnabled, isWorkflowNodeBypassed, NodeConfiguration, WorkflowEdge, WorkflowGroup, WorkflowNode as WorkflowNodeData, WorkflowSelection } from "../workflow/types";
+import { getMinimapLayout, getViewportWorldRectangle, MINIMAP_HEIGHT, MINIMAP_WIDTH, minimapPointFromWorld, worldPointFromMinimap } from "./minimap";
 
 type NodeAction = "delete" | "duplicate" | "configure" | "toggle-lock" | "toggle-bypass" | "toggle-disable" | "view-raw" | "tunnel";
 
@@ -94,9 +94,30 @@ export function WorkflowCanvas({
   const [viewport, setViewport] = useState<Viewport>(getDefaultViewport);
   const [interaction, setInteraction] = useState<Interaction>(null);
   const [edgeActionsOpen, setEdgeActionsOpen] = useState(false);
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+  const [minimapActive, setMinimapActive] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
+  const minimapIdleTimer = useRef<number | undefined>(undefined);
+  const minimapPointerId = useRef<number | undefined>(undefined);
 
   const byId = useMemo(() => new Map(nodes.map(node => [node.id, node])), [nodes]);
+  const wakeMinimap = useCallback(() => {
+    setMinimapActive(true);
+    window.clearTimeout(minimapIdleTimer.current);
+    minimapIdleTimer.current = window.setTimeout(() => setMinimapActive(false), 1400);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(minimapIdleTimer.current), []);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const updateSize = () => setStageSize({ width: stage.clientWidth, height: stage.clientHeight });
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!focusRequest) return;
@@ -144,6 +165,7 @@ export function WorkflowCanvas({
     if (event.shiftKey && event.button === 0) {
       setInteraction({ kind: "marquee", start: point, current: point });
     } else {
+      wakeMinimap();
       setInteraction({ kind: "pan", start: point, viewport, moved: false });
     }
   };
@@ -180,12 +202,14 @@ export function WorkflowCanvas({
     if (!interaction) return;
     const point = getStagePoint(event);
     if (interaction.kind === "pan") {
+      wakeMinimap();
       const delta = { x: point.x - interaction.start.x, y: point.y - interaction.start.y };
       setViewport({ ...interaction.viewport, x: interaction.viewport.x + delta.x, y: interaction.viewport.y + delta.y });
       setInteraction({ ...interaction, moved: interaction.moved || Math.hypot(delta.x, delta.y) > 3 });
     }
     if (interaction.kind === "marquee") setInteraction({ ...interaction, current: point });
     if (interaction.kind === "node") {
+      wakeMinimap();
       const delta = { x: (point.x - interaction.start.x) / viewport.zoom, y: (point.y - interaction.start.y) / viewport.zoom };
       const positions = Object.fromEntries(
         Object.entries(interaction.positions).map(([id, position]) => [id, { x: snap(position.x + delta.x), y: snap(position.y + delta.y) }]),
@@ -218,6 +242,7 @@ export function WorkflowCanvas({
 
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
     event.preventDefault();
+    wakeMinimap();
     const point = getStagePoint(event);
     const nextZoom = clamp(viewport.zoom * Math.exp(-event.deltaY * 0.0015), 0.3, 2.3);
     const ratio = nextZoom / viewport.zoom;
@@ -234,6 +259,28 @@ export function WorkflowCanvas({
   const selectedEdgeMidpoint = selectedEdgeSource && selectedEdgeTarget
     ? curveMidpoint(nodeCenter(selectedEdgeSource, "out"), nodeCenter(selectedEdgeTarget, "in"))
     : undefined;
+  const minimapLayout = useMemo(
+    () => getMinimapLayout(nodes, viewport, stageSize),
+    [nodes, viewport, stageSize],
+  );
+  const minimapViewport = getViewportWorldRectangle(viewport, stageSize);
+  const minimapViewportOrigin = minimapPointFromWorld(minimapLayout, { x: minimapViewport.left, y: minimapViewport.top });
+  const moveViewportFromMinimapPointer = (event: PointerEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    const rect = target.getBoundingClientRect();
+    if (!rect.width || !rect.height || !stageSize.width || !stageSize.height) return;
+    const mapPoint = {
+      x: (event.clientX - rect.left) / rect.width * MINIMAP_WIDTH,
+      y: (event.clientY - rect.top) / rect.height * MINIMAP_HEIGHT,
+    };
+    const worldPoint = worldPointFromMinimap(minimapLayout, mapPoint);
+    wakeMinimap();
+    setViewport(current => ({
+      ...current,
+      x: stageSize.width / 2 - worldPoint.x * current.zoom,
+      y: stageSize.height / 2 - worldPoint.y * current.zoom,
+    }));
+  };
 
   return (
     <main
@@ -321,15 +368,51 @@ export function WorkflowCanvas({
       </div>
 
       {marquee && <div className="marquee" style={marquee} />}
+      <div
+        className={`workflow-minimap ${minimapActive ? "is-active" : ""}`}
+        aria-label="Workflow overview. Click or drag to navigate the canvas."
+        role="navigation"
+        onPointerDown={event => {
+          if (event.button !== 0) return;
+          event.stopPropagation();
+          minimapPointerId.current = event.pointerId;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          moveViewportFromMinimapPointer(event);
+        }}
+        onPointerMove={event => {
+          if (minimapPointerId.current === event.pointerId) moveViewportFromMinimapPointer(event);
+        }}
+        onPointerUp={event => {
+          if (minimapPointerId.current === event.pointerId) minimapPointerId.current = undefined;
+        }}
+        onPointerCancel={() => { minimapPointerId.current = undefined; }}
+      >
+        <svg viewBox={`0 0 ${MINIMAP_WIDTH} ${MINIMAP_HEIGHT}`} aria-hidden="true">
+          {edges.map(edge => {
+            const source = byId.get(edge.source);
+            const target = byId.get(edge.target);
+            if (!source || !target) return null;
+            const from = minimapPointFromWorld(minimapLayout, nodeCenter(source, "out"));
+            const to = minimapPointFromWorld(minimapLayout, nodeCenter(target, "in"));
+            return <line key={edge.id} className={`minimap-rope ${isWorkflowEdgeEnabled(edge) ? "" : "is-disabled"}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} />;
+          })}
+          {nodes.map(node => {
+            const position = minimapPointFromWorld(minimapLayout, node.position);
+            const dimensions = getNodeDimensions(node);
+            return <rect key={node.id} className={`minimap-node ${selection.nodeIds.includes(node.id) ? "is-selected" : ""}`} x={position.x} y={position.y} width={Math.max(3, dimensions.width * minimapLayout.scale)} height={Math.max(3, dimensions.height * minimapLayout.scale)} rx="1.5" />;
+          })}
+          <rect className="minimap-viewport" x={minimapViewportOrigin.x} y={minimapViewportOrigin.y} width={Math.max(5, minimapViewport.width * minimapLayout.scale)} height={Math.max(5, minimapViewport.height * minimapLayout.scale)} rx="1.5" />
+        </svg>
+      </div>
       <div className="canvas-axis axis-x"><span>X</span><i /></div>
       <div className="canvas-axis axis-y"><span>Y</span><i /></div>
       <div className="canvas-hud"><MousePointer2 size={13} /><span>{selection.nodeIds.length ? `${selection.nodeIds.length} SELECTED` : selection.edgeIds.length ? "CONNECTION SELECTED" : "CANVAS READY"}</span></div>
       <div className="canvas-controls" onPointerDown={event => event.stopPropagation()}>
-        <button onClick={() => setViewport(current => ({ ...current, zoom: clamp(current.zoom - 0.1, 0.3, 2.3) }))} aria-label="Zoom out"><Minus size={15} /></button>
-        <button className="zoom-readout" onClick={() => setViewport(current => ({ ...current, zoom: 1 }))}>{Math.round(viewport.zoom * 100)}%</button>
-        <button onClick={() => setViewport(current => ({ ...current, zoom: clamp(current.zoom + 0.1, 0.3, 2.3) }))} aria-label="Zoom in"><Plus size={15} /></button>
+        <button onClick={() => { wakeMinimap(); setViewport(current => ({ ...current, zoom: clamp(current.zoom - 0.1, 0.3, 2.3) })); }} aria-label="Zoom out"><Minus size={15} /></button>
+        <button className="zoom-readout" onClick={() => { wakeMinimap(); setViewport(current => ({ ...current, zoom: 1 })); }}>{Math.round(viewport.zoom * 100)}%</button>
+        <button onClick={() => { wakeMinimap(); setViewport(current => ({ ...current, zoom: clamp(current.zoom + 0.1, 0.3, 2.3) })); }} aria-label="Zoom in"><Plus size={15} /></button>
         <span />
-        <button onClick={() => setViewport(getDefaultViewport())} aria-label="Reset canvas"><Scan size={15} /></button>
+        <button onClick={() => { wakeMinimap(); setViewport(getDefaultViewport()); }} aria-label="Reset canvas"><Scan size={15} /></button>
       </div>
     </main>
   );

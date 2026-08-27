@@ -57,3 +57,10 @@
 - [x] Implement grouped multi-node movement, Ungrip release, and group Lock/Unlock controls.
 - [x] Add Execute Selected to the top menu and append only new execution ropes between ordered selected nodes.
 - [x] Test group and selected-execution behavior, visually validate the canvas controls, and save the advanced canvas checkpoint.
+- [ ] Define persistent share snapshots, viewer comments, and workflow approval records with explicit owner, viewer, and approver access rules.
+- [ ] Add secure collaboration services for protected share links, viewer comments, password-verified approver decisions, all-approver completion, and owner notifications.
+- [ ] Add an Approval Settings control to the editor for selecting approvers, defining an approval password, and initiating approval requests.
+- [ ] Build a read-only viewer route that shows the shared canvas and provides only comment and approval actions.
+- [ ] Test collaboration permissions, snapshot updates, comment notifications, approval persistence, and the all-approver decision rule before saving a checkpoint.
+- [ ] Add a top-menu Delete Workflow action with a dedicated confirmation dashboard, required manually typed text, and paste rejection before permanent deletion.
+- [x] Add a minimal interactive workflow minimap that derives from the existing nodes, connections, and viewport, appears during navigation, and fades when inactive.
