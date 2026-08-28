@@ -67,3 +67,8 @@
 - [x] Integrate the supplied Articulate logo thinking animation with actual safe AI processing states and restore the exact static logo immediately when execution pauses, completes, or fails.
 - [x] Audit and refactor shared workflow, node, connection, execution, persistence, history, and inspection contracts for extensibility and reliability without changing intended behavior.
 - [ ] Verify canvas scalability, minimap synchronization, theme consistency, editor interaction safety, collaboration access boundaries, approval persistence, and regression coverage across all existing capabilities.
+- [x] Refine existing Articulate spacing, typography, hover and focus states, panel transitions, responsive canvas behavior, and keyboard accessibility without changing product behavior.
+- [x] Add minimal open-close transitions for the existing panels and rails, respecting reduced-motion preferences without changing panel behavior.
+- [x] Add focused regression coverage for keyboard shortcuts and panel dismissal behavior introduced in the final quality pass.
+- [x] Extract and test the Escape-driven overlay dismissal state used by the editor.
+- [x] Extract and test panel open-close presentation state so hidden controls remain inert and rail triggers are exposed consistently.
