@@ -1,7 +1,6 @@
 import { ChevronLeft, ChevronRight, CirclePlus, Copy, Layers3, Search, Workflow, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { nodeCatalog, NodeType, searchNodeTypes } from "../workflow/types";
-import { getPanelPresentation } from "./panelPresentation";
 
 type LeftPanelProps = {
   open: boolean;
@@ -14,11 +13,13 @@ type LeftPanelProps = {
 export function LeftPanel({ open, onToggle, onAddNode, onCopy, canCopy }: LeftPanelProps) {
   const [query, setQuery] = useState("");
   const matchingTypes = useMemo(() => searchNodeTypes(query), [query]);
-  const presentation = getPanelPresentation(open);
+
+  if (!open) {
+    return <button className="panel-rail panel-rail-left" onClick={onToggle} aria-label="Open left panel"><ChevronRight size={17} /></button>;
+  }
 
   return (
-    <>
-    <aside className={`app-panel left-panel ${presentation.panelStateClass}`} aria-hidden={presentation.ariaHidden} inert={presentation.inert}>
+    <aside className="app-panel left-panel">
       <div className="panel-header">
         <div className="brand-mark brand-mark-graph" aria-label="Articulate mark"><i /><i /><i /></div>
         <div><strong>Articulate</strong></div>
@@ -56,7 +57,5 @@ export function LeftPanel({ open, onToggle, onAddNode, onCopy, canCopy }: LeftPa
         </div>
       </section>
     </aside>
-    <button className={`panel-rail panel-rail-left ${presentation.railStateClass}`} onClick={onToggle} aria-label="Open left panel"><ChevronRight size={17} /></button>
-    </>
   );
 }

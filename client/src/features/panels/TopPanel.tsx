@@ -2,7 +2,6 @@ import { BookOpen, ChevronDown, ChevronUp, Command, CopyPlus, Download, Eye, Fil
 import { useMemo, useState } from "react";
 import { WorkflowNode } from "../workflow/types";
 import { ArticulateThinkingLogo } from "../brand/ArticulateThinkingLogo";
-import { getPanelPresentation } from "./panelPresentation";
 
 export type Appearance = "white" | "grey" | "night" | "system";
 type WorkflowMenuAction = "save-template" | "duplicate" | "templates" | "starters" | "import" | "export" | "share" | "publish";
@@ -41,10 +40,9 @@ export function TopPanel({ open, appearance, workflowName, nodes, canUndo, canRe
     return normalized ? nodes.filter(node => node.title.toLocaleLowerCase().includes(normalized) || String(node.index).includes(normalized)).slice(0, 6) : [];
   }, [nodes, query]);
   const chooseAction = (action: WorkflowMenuAction) => { onWorkflowAction(action); setMenuOpen(false); };
-  const presentation = getPanelPresentation(open);
 
-  return <>
-    <header className={`top-panel workflow-top-panel ${presentation.panelStateClass}`} aria-hidden={presentation.ariaHidden} inert={presentation.inert}>
+  if (!open) return <button className="top-rail" onClick={onToggle} aria-label="Open top controls"><ChevronUp size={17} /></button>;
+  return <header className="top-panel workflow-top-panel">
     <div className="top-identity"><ArticulateThinkingLogo isThinking={isThinking} size={25} /><div><h1>{workflowName}</h1></div></div>
     <div className="top-center-tools">
       <div className="tool-segment"><button onClick={onUndo} disabled={!canUndo} aria-label="Undo"><Undo2 size={15} /></button><button onClick={onRedo} disabled={!canRedo} aria-label="Redo"><Redo2 size={15} /></button></div>
@@ -68,7 +66,5 @@ export function TopPanel({ open, appearance, workflowName, nodes, canUndo, canRe
       <div className="tool-segment"><button className="top-tool-icon" aria-label="Preview unavailable"><Eye size={15} /></button><button className="top-tool-icon" aria-label="Shortcuts"><Command size={15} /></button></div>
       <button className="collapse-button top-collapse" onClick={onToggle} aria-label="Collapse top controls"><PanelTopClose size={16} /></button>
     </div>
-    </header>
-    <button className={`top-rail ${presentation.railStateClass}`} onClick={onToggle} aria-label="Open top controls"><ChevronUp size={17} /></button>
-  </>;
+  </header>;
 }

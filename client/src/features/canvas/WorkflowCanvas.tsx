@@ -46,7 +46,7 @@ const clamp = (value: number, low: number, high: number) => Math.max(low, Math.m
 const snap = (value: number) => Math.round(value / GRID) * GRID;
 const getDefaultViewport = (): Viewport =>
   typeof window !== "undefined" && window.innerWidth <= 600
-    ? { x: 235, y: 305, zoom: 0.52 }
+    ? { x: 255, y: 330, zoom: 0.45 }
     : { x: 760, y: 370, zoom: 1 };
 
 function curve(from: GraphPosition, to: GraphPosition) {

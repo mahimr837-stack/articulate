@@ -2,7 +2,6 @@ import { Check, ChevronLeft, ChevronRight, Clock3, KeyRound, LockKeyhole, Slider
 import { useMemo, useState } from "react";
 import { ExecutionState, formatDuration } from "../execution/executionState";
 import { NodeConfiguration, WorkflowNode } from "../workflow/types";
-import { getPanelPresentation } from "./panelPresentation";
 
 type RightPanelProps = {
   open: boolean;
@@ -15,7 +14,6 @@ type RightPanelProps = {
 
 export function RightPanel({ open, node, execution, nodes, onToggle, onConfigChange }: RightPanelProps) {
   const [view, setView] = useState<"inspect" | "history">("inspect");
-  const presentation = getPanelPresentation(open);
   const historyRuns = useMemo(
     () => Object.entries(execution)
       .filter(([, record]) => record.history.length > 0)
@@ -23,10 +21,13 @@ export function RightPanel({ open, node, execution, nodes, onToggle, onConfigCha
     [execution],
   );
 
+  if (!open) {
+    return <button className="panel-rail panel-rail-right" onClick={onToggle} aria-label="Open inspector and history"><ChevronLeft size={17} /></button>;
+  }
+
   const isAgent = node?.type === "ai-agent";
   return (
-    <>
-    <aside className={`app-panel right-panel ${presentation.panelStateClass}`} aria-hidden={presentation.ariaHidden} inert={presentation.inert}>
+    <aside className="app-panel right-panel">
       <div className="panel-header inspector-header">
         <div><strong>{view === "history" ? "History" : "Inspector"}</strong></div>
         <button className="collapse-button" onClick={onToggle} aria-label="Collapse inspector"><ChevronRight size={17} /></button>
@@ -107,7 +108,5 @@ export function RightPanel({ open, node, execution, nodes, onToggle, onConfigCha
         <div className="empty-inspector"><SlidersHorizontal size={24} /><h2>Nothing selected</h2><p>Select a node on the canvas to inspect its configuration.</p></div>
       )}
     </aside>
-    <button className={`panel-rail panel-rail-right ${presentation.railStateClass}`} onClick={onToggle} aria-label="Open inspector and history"><ChevronLeft size={17} /></button>
-    </>
   );
 }
